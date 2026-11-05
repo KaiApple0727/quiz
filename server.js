@@ -19,6 +19,15 @@ const HOST_HANDOVER_MS = 15000;      // ルーム主が切断したまま戻ら�
 const ROOM_IDLE_MS = 15 * 60 * 1000; // 誰もいないルームを消すまでの時間
 const GRACE_MS = 600;                // 通信の遅れを見込んだ受付の猶予
 const PING_MS = 20000;               // 接続を保つための空送信
+const MAX_BOTS = 7;
+
+// NPC の強さ。accuracy = 正解する確率、speed = 制限時間のどのあたりで答えるか（0=すぐ、1=ぎりぎり）
+const BOT_LEVELS = {
+  easy:   { label: 'よわい', accuracy: 0.4,  speed: [0.45, 0.9] },
+  normal: { label: 'ふつう', accuracy: 0.65, speed: [0.25, 0.7] },
+  hard:   { label: 'つよい', accuracy: 0.9,  speed: [0.08, 0.4] },
+};
+const BOT_NAMES = ['ロボ太', 'ピコ', 'クイズ博士', 'ポン吉', 'ミケ', 'ガリ勉くん', 'ひらめき姫', 'うっかり侍', 'もぐら先生', 'チャチャ', 'ドット', 'ハカセ2号'];
 
 const rooms = new Map();
 
@@ -60,8 +69,16 @@ function uniqueName(room, name, selfId) {
   for (let n = 2; n < 100; n++) if (!taken.has(`${name}${n}`)) return `${name}${n}`;
   return name;
 }
-const isConnected = (p) => p.streams.size > 0;
+const isConnected = (p) => p.bot || p.streams.size > 0;
 const connectedPlayers = (room) => [...room.players.values()].filter(isConnected);
+const humans = (room) => [...room.players.values()].filter((p) => !p.bot);
+const onlineHumans = (room) => humans(room).filter(isConnected);
+function deleteRoom(room) {
+  clearTimeout(room.timer);
+  clearTimeout(room.handoverTimer);
+  clearBotTimers(room);
+  rooms.delete(room.code);
+}
 
 /* ---------- 各プレイヤーに送る状態 ---------- */
 function viewFor(room, player) {
@@ -79,6 +96,8 @@ function viewFor(room, player) {
       gain: p.gain,
       connected: isConnected(p),
       isHost: room.hostId === p.id,
+      bot: !!p.bot,
+      level: p.bot ? BOT_LEVELS[p.level].label : undefined,
       answered: room.phase === 'question' ? room.answers.has(p.id) : false,
     })),
   };
@@ -110,7 +129,7 @@ function send(res, event, data) {
 }
 function broadcast(room) {
   for (const p of room.players.values()) {
-    if (!isConnected(p)) continue;
+    if (p.bot || !isConnected(p)) continue;
     const view = viewFor(room, p);
     for (const res of p.streams) send(res, 'state', view);
   }
@@ -136,11 +155,47 @@ function showQuestion(room, i) {
   room.qStartedAt = Date.now();
   room.deadline = room.qStartedAt + room.settings.time * 1000;
   room.timer = setTimeout(() => reveal(room), room.settings.time * 1000 + GRACE_MS);
+  scheduleBots(room);
   broadcast(room);
 }
+
+/* ---------- NPC ---------- */
+function clearBotTimers(room) {
+  for (const t of room.botTimers || []) clearTimeout(t);
+  room.botTimers = [];
+}
+function scheduleBots(room) {
+  clearBotTimers(room);
+  const q = room.questions[room.qIndex];
+  const limit = room.settings.time * 1000;
+  for (const p of room.players.values()) {
+    if (!p.bot) continue;
+    const lv = BOT_LEVELS[p.level];
+    const [lo, hi] = lv.speed;
+    const delay = Math.round(limit * (lo + Math.random() * (hi - lo)));
+    const right = Math.random() < lv.accuracy;
+    const wrong = [0, 1, 2, 3].filter((i) => i !== q.a);
+    const c = right ? q.a : wrong[crypto.randomInt(wrong.length)];
+    room.botTimers.push(setTimeout(() => {
+      if (room.phase !== 'question' || room.questions[room.qIndex] !== q || room.answers.has(p.id) || !room.players.has(p.id)) return;
+      room.answers.set(p.id, { c, ms: Date.now() - room.qStartedAt });
+      broadcast(room);
+      maybeAutoReveal(room);
+    }, delay));
+  }
+}
+function addBot(room, level) {
+  const used = new Set([...room.players.values()].map((p) => p.name));
+  const name = shuffle(BOT_NAMES).find((n) => !used.has(n)) || uniqueName(room, 'NPC');
+  const p = { id: rand(6), token: null, bot: true, level, name, score: 0, gain: 0, joinedAt: Date.now(), streams: new Set() };
+  room.players.set(p.id, p);
+  return p;
+}
+
 function reveal(room) {
   if (room.phase !== 'question') return;
   clearTimeout(room.timer);
+  clearBotTimers(room);
   const q = room.questions[room.qIndex];
   const limit = room.settings.time * 1000;
   for (const [pid, a] of room.answers) {
@@ -167,7 +222,7 @@ function scheduleHandover(room) {
   room.handoverTimer = setTimeout(() => {
     const host = room.players.get(room.hostId);
     if (host && isConnected(host)) return;
-    const nextHost = connectedPlayers(room).sort((a, b) => a.joinedAt - b.joinedAt)[0];
+    const nextHost = onlineHumans(room).sort((a, b) => a.joinedAt - b.joinedAt)[0];
     if (nextHost) { room.hostId = nextHost.id; broadcast(room); }
   }, HOST_HANDOVER_MS);
 }
@@ -181,7 +236,7 @@ function addPlayer(room, name) {
 function auth(body) {
   const room = rooms.get(String(body.code || ''));
   if (!room) return {};
-  const me = [...room.players.values()].find((p) => p.token === body.token);
+  const me = body.token ? [...room.players.values()].find((p) => !p.bot && p.token === body.token) : null;
   return { room, me, isHost: !!me && room.hostId === me.id };
 }
 
@@ -204,11 +259,11 @@ const actions = {
     const code = String(body.code || '').replace(/\D/g, '');
     const room = rooms.get(code);
     if (!room) return { ok: false, error: 'そのルームは見つかりません。番号を確かめてください。' };
-    const known = [...room.players.values()].find((p) => p.token === body.token);
+    const known = body.token ? humans(room).find((p) => p.token === body.token) : null;
     if (known) return { ok: true, code, token: known.token };
     const name = cleanName(body.name);
     if (!name) return { ok: false, error: 'ニックネームを入れてください。' };
-    if (room.players.size >= MAX_PLAYERS) return { ok: false, error: 'このルームは満員です。' };
+    if (humans(room).length >= MAX_PLAYERS) return { ok: false, error: 'このルームは満員です。' };
     const me = addPlayer(room, name);
     room.lastActive = Date.now();
     broadcast(room);
@@ -219,9 +274,9 @@ const actions = {
     if (!me) return { ok: true };
     for (const res of me.streams) res.end();
     room.players.delete(me.id);
-    if (room.players.size === 0) { clearTimeout(room.timer); clearTimeout(room.handoverTimer); rooms.delete(room.code); return { ok: true }; }
+    if (humans(room).length === 0) { deleteRoom(room); return { ok: true }; }
     if (room.hostId === me.id) {
-      const nextHost = (connectedPlayers(room)[0] || [...room.players.values()][0]);
+      const nextHost = (onlineHumans(room)[0] || humans(room)[0]);
       room.hostId = nextHost.id;
     }
     maybeAutoReveal(room);
@@ -235,6 +290,24 @@ const actions = {
     if (genreList().some((g) => g.id === body.genre && g.count > 0)) s.genre = body.genre;
     if (COUNTS.includes(+body.count)) s.count = +body.count;
     if (TIMES.includes(+body.time)) s.time = +body.time;
+    broadcast(room);
+    return { ok: true };
+  },
+  addBot(body) {
+    const { room, isHost } = auth(body);
+    if (!isHost || (room.phase !== 'lobby' && room.phase !== 'final')) return { ok: false };
+    if (!BOT_LEVELS[body.level]) return { ok: false };
+    if (room.players.size - humans(room).length >= MAX_BOTS) return { ok: false, error: `NPCは${MAX_BOTS}人までです。` };
+    addBot(room, body.level);
+    broadcast(room);
+    return { ok: true };
+  },
+  removeBot(body) {
+    const { room, isHost } = auth(body);
+    if (!isHost || (room.phase !== 'lobby' && room.phase !== 'final')) return { ok: false };
+    const p = room.players.get(String(body.id || ''));
+    if (!p || !p.bot) return { ok: false };
+    room.players.delete(p.id);
     broadcast(room);
     return { ok: true };
   },
@@ -273,6 +346,7 @@ const actions = {
     const { room, isHost } = auth(body);
     if (!isHost) return { ok: false };
     clearTimeout(room.timer);
+    clearBotTimers(room);
     room.phase = 'lobby';
     for (const p of room.players.values()) { p.score = 0; p.gain = 0; }
     broadcast(room);
@@ -347,11 +421,7 @@ const server = http.createServer(async (req, res) => {
 setInterval(() => {
   const now = Date.now();
   for (const [code, room] of rooms) {
-    if (connectedPlayers(room).length === 0 && now - room.lastActive > ROOM_IDLE_MS) {
-      clearTimeout(room.timer);
-      clearTimeout(room.handoverTimer);
-      rooms.delete(code);
-    }
+    if (onlineHumans(room).length === 0 && now - room.lastActive > ROOM_IDLE_MS) deleteRoom(room);
   }
 }, 60 * 1000).unref();
 

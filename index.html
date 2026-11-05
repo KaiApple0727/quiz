@@ -79,6 +79,10 @@ input.code{font-family:var(--dot);font-size:1.8rem;letter-spacing:.3em;text-alig
 .chip.me{border-color:var(--hi);background:var(--hi);color:var(--on-hi)}
 .chip.off{opacity:.45}
 .chip .crown{font-size:.75rem;margin-left:4px}
+.chip.bot{border-style:dashed;display:inline-flex;align-items:center;gap:6px}
+.npc{display:inline-block;font-family:var(--dot);font-size:.72rem;font-weight:400;padding:0 6px;border-radius:6px;background:var(--line);color:var(--ink);letter-spacing:.04em;vertical-align:middle}
+.chip .x{border:0;background:none;padding:0 2px;font-size:1rem;line-height:1;color:var(--muted)}
+.npc-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
 @keyframes pop{from{transform:scale(.7)}to{transform:scale(1)}}
 
 .genres{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
@@ -283,7 +287,7 @@ function homeHTML(){
       </form>
       <form class="panel" id="create-form">
         <h2 style="font-size:1.2rem">ルームを作る</h2>
-        <p class="muted">あなたがルーム主になります。ジャンルを選んでスタートでき、自分も一緒に回答できます。</p>
+        <p class="muted">あなたがルーム主になります。ジャンルを選んでスタートでき、自分も一緒に回答できます。友達がいなくても、NPCと対戦できます。</p>
         <button class="btn" type="submit" style="margin-top:auto">新しいルームを作る</button>
       </form>
     </div>
@@ -315,10 +319,26 @@ function bindHome(){
   if(new URLSearchParams(location.search).get('room') && !nameEl.value) nameEl.focus();
 }
 
+const npcTag = (p) => p.bot ? ` <span class="npc">NPC・${esc(p.level)}</span>` : '';
 function chipsHTML(){
+  const canRemove = isHost() && (state.phase === 'lobby' || state.phase === 'final');
   return '<div class="chips">' + state.players.map((p) =>
-    `<span class="chip${p.id === me().id ? ' me' : ''}${p.connected ? '' : ' off'}">${esc(p.name)}${p.isHost ? '<span class="crown">司会</span>' : ''}</span>`
+    `<span class="chip${p.id === me().id ? ' me' : ''}${p.connected ? '' : ' off'}${p.bot ? ' bot' : ''}">${esc(p.name)}${p.isHost ? '<span class="crown">司会</span>' : ''}${npcTag(p)}` +
+    (p.bot && canRemove ? `<button class="x" data-act="removeBot" data-v="${esc(p.id)}" aria-label="${esc(p.name)}を外す">×</button>` : '') + `</span>`
   ).join('') + '</div>';
+}
+let botLevel = store('quiz.botLevel') || 'normal';
+function npcHTML(){
+  const bots = state.players.filter((p) => p.bot).length;
+  const levels = [['easy','よわい'],['normal','ふつう'],['hard','つよい']];
+  return `<div class="stack" style="gap:8px">
+    <span class="lbl">NPC（コンピューター）${bots ? ` ・ ${bots}人` : ''}</span>
+    <div class="npc-row">
+      <div class="seg">${levels.map(([v, l]) => `<button type="button" data-act="botLevel" data-v="${v}" aria-pressed="${botLevel === v}">${l}</button>`).join('')}</div>
+      <button class="btn small" data-act="addBot" ${bots >= 7 ? 'disabled' : ''}>NPCを追加</button>
+    </div>
+    <p class="muted" style="font-size:.85rem">友達がいなくても、NPCを入れれば1人で大会ができます。名前の×で外せます。</p>
+  </div>`;
 }
 function joinUrl(){ return location.origin + location.pathname + '?room=' + state.code; }
 
@@ -341,6 +361,7 @@ function lobbyHTML(){
         <div><span class="lbl">問題数</span>${seg(COUNTS, s.count, 'count', '問')}</div>
         <div><span class="lbl">制限時間（1問）</span>${seg(TIMES, s.time, 'time', '秒')}</div>
       </div>
+      ${host ? npcHTML() : ''}
       ${host ? `<div class="row" style="justify-content:space-between">
         <span class="muted">${esc(g.name)}から${Math.min(s.count, g.count || 0)}問を出題</span>
         <button class="btn hi" data-act="start">スタート</button></div>` : ''}
@@ -387,7 +408,7 @@ function rankHTML(limit){
   const r = ranking(); let pos = 0, prev = null;
   return '<ol class="rank">' + r.slice(0, limit || r.length).map((x, i) => {
     if(x.score !== prev){ pos = i + 1; prev = x.score; }
-    return `<li class="${x.id === me().id ? 'me' : ''}"><span class="pos">${pos}</span><span class="nm">${esc(x.name)}</span><span class="gain">${x.gain ? '+' + x.gain : ''}</span><span class="sc">${x.score}</span></li>`;
+    return `<li class="${x.id === me().id ? 'me' : ''}"><span class="pos">${pos}</span><span class="nm">${esc(x.name)}${npcTag(x)}</span><span class="gain">${x.gain ? '+' + x.gain : ''}</span><span class="sc">${x.score}</span></li>`;
   }).join('') + '</ol>';
 }
 function myPos(){
@@ -448,6 +469,9 @@ document.addEventListener('click', async (e) => {
     case 'genre': api('settings', {genre: v}); break;
     case 'count': api('settings', {count: +v}); break;
     case 'time': api('settings', {time: +v}); break;
+    case 'botLevel': botLevel = v; store('quiz.botLevel', v); render(); break;
+    case 'addBot': { const r = await api('addBot', {level: botLevel}); if(!r.ok && r.error) toast(r.error); break; }
+    case 'removeBot': api('removeBot', {id: v}); break;
     case 'start': { const r = await api('start'); if(!r.ok && r.error) toast(r.error); break; }
     case 'answer': {
       if(state.myAnswer != null || pendingAnswer != null || remainingMs() <= 0) return;
