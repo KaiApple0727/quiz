@@ -177,6 +177,20 @@ button.ans:disabled{cursor:default}
 .rule b{font-family:var(--display);font-weight:400;font-size:1.25rem}
 .rule small{color:var(--muted);font-size:.8rem}
 
+/* slots */
+.slots{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.slot{display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 8px;border-radius:16px;background:var(--surface);border:2px solid var(--line);min-width:0;text-align:center}
+.slot small{color:var(--muted);font-size:.8rem}
+.slot .window{width:100%;min-height:3.4em;display:grid;place-items:center;border-radius:10px;background:var(--ink);color:var(--bg);padding:6px 4px;overflow:hidden}
+.slot .reel{font-family:var(--display);font-weight:400;font-size:clamp(.95rem,4vw,1.35rem);line-height:1.25;overflow-wrap:anywhere}
+.slot:not(.stopped) .reel{opacity:.75;filter:blur(.4px)}
+.slot.stopped{border-color:var(--hi);animation:slotstop .35s ease-out}
+.slot.stopped .window{background:var(--hi);color:var(--on-hi)}
+.slot .votes{font-family:var(--dot)}
+@keyframes slotstop{0%{transform:scale(1)}40%{transform:scale(1.08)}100%{transform:scale(1)}}
+.reveal-in{animation:fadeup .4s ease-out}
+@keyframes fadeup{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
 /* teams */
 .teams{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .team{display:flex;flex-direction:column;gap:6px;padding:14px 16px;border-radius:16px;color:var(--on-a);min-width:0}
@@ -303,7 +317,8 @@ function renderHeader(){
   const who = $('#who');
   if(!session || !state){ who.innerHTML = ''; return; }
   const n = state.players.filter((p) => !p.bot && p.connected).length;
-  const team = me().team && isTeam() ? `<span class="myteam ${me().team}">${TEAM_NAME[me().team]}</span>` : '';
+  // ルール発表（スロット）中はチームを見せない
+  const team = me().team && isTeam() && state.phase !== 'decided' ? `<span class="myteam ${me().team}">${TEAM_NAME[me().team]}</span>` : '';
   who.innerHTML =
     `<span class="pill${online ? '' : ' off'}"><span class="dot"></span>${online ? '参加 ' + n + '人' : '再接続中…'}</span>` + team +
     `<span class="pill${isHost() ? ' host' : ''}">${isHost() ? 'ルーム主・' : ''}${esc(me().name)}</span>` +
@@ -323,6 +338,8 @@ function render(){
     ph === 'question' ? questionHTML() :
     ph === 'reveal' ? revealHTML() :
     ph === 'final' ? finalHTML() : '';
+  if(ph === 'decided' && !slotRAF) slotRAF = requestAnimationFrame(spinSlots);
+  if(ph !== 'decided'){ decidedStart = 0; decidedKey = null; }
 }
 
 /* home */
@@ -486,24 +503,83 @@ function voteHTML(){
 }
 
 /* decided */
+// スロットが止まる時間（決定画面が出てからのミリ秒）
+const SLOT_STOPS = [1800, 3300, 4800];
+const AFTER_SLOTS = 5500;   // 問題数・制限時間とモードの説明を出す
+const TEAM_SHOW = 6800;     // チーム発表を出す
+let decidedStart = 0, decidedKey = null, slotRAF = 0;
+const reducedMotion = (() => { try{ return matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){ return false; } })();
+function decidedElapsed(){ return reducedMotion ? 99999 : Date.now() - decidedStart; }
+
 function decidedHTML(){
   const d = state.decided, c = state.config, sec = Math.ceil(remainingMs() / 1000);
-  const votes = (key, id) => (d.tally[key] || {})[id] || 0;
-  const items = [
-    ['形式', c.formatName, votes('format', c.format)],
-    ['モード', c.modeName, votes('mode', c.mode)],
-    ['ジャンル', c.genreName, votes('genre', c.genre)],
-    ['問題数', c.count + '問', null],
-    ['制限時間', c.time + '秒', null],
+  if(decidedKey !== state.code + c.genre + c.format + c.mode || !decidedStart){
+    decidedKey = state.code + c.genre + c.format + c.mode;
+    decidedStart = Date.now() - (d.elapsedMs || 0);
+  }
+  const votes = (k, id) => (d.tally[k] || {})[id] || 0;
+  const reels = [
+    {k:'format', label:'形式', result:c.formatName, n:votes('format', c.format)},
+    {k:'mode', label:'モード', result:c.modeName, n:votes('mode', c.mode)},
+    {k:'genre', label:'ジャンル', result:c.genreName, n:votes('genre', c.genre)},
   ];
+  const el = decidedElapsed();
+  const reelHTML = reels.map((r, i) => {
+    const stopped = el >= SLOT_STOPS[i];
+    return `<div class="slot${stopped ? ' stopped' : ''}" id="slot-${i}">
+      <small>${r.label}</small>
+      <div class="window"><b class="reel" id="reel-${i}">${esc(stopped ? r.result : spinningName(i, el))}</b></div>
+      <small class="votes" id="votes-${i}">${stopped ? r.n + '票' : '…'}</small>
+    </div>`;
+  }).join('');
+  const after = el >= AFTER_SLOTS, teams = el >= TEAM_SHOW;
   return `<div class="stack">
-    <div class="marquee"><h1>ルール決定！</h1></div>
-    <div class="rules">${items.map(([l, v, n]) => `<div class="rule"><small>${l}</small><b>${esc(v)}</b><small>${n == null ? 'ルーム主が決定' : n + '票'}</small></div>`).join('')}</div>
-    ${d.forcedSolo ? '<p class="center muted">チーム戦は2人以上で遊べるので、今回は個人戦になりました。</p>' : ''}
-    ${isBuzz() ? '<p class="center muted">早押し：いちばん早く正解した人だけが1000点。まちがえるとその問題は答えられません。</p>' : '<p class="center muted">全員が答えられます。速く正解するほど高得点です。</p>'}
-    ${isTeam() ? `<h3 class="center">チーム発表</h3>${teamsHTML()}<p class="center muted" style="font-size:.85rem">チームの得点は、メンバーの平均点です。</p>` : ''}
+    <div class="marquee" style="padding-bottom:0"><h1 id="dec-title">${el >= SLOT_STOPS[2] ? 'ルール決定！' : 'ルール発表…'}</h1></div>
+    <div class="slots">${reelHTML}</div>
+    <div class="stack reveal-in" id="dec-after" ${after ? '' : 'hidden'}>
+      <div class="rules">
+        <div class="rule"><small>問題数</small><b>${c.count}問</b><small>ルーム主が決定</small></div>
+        <div class="rule"><small>制限時間</small><b>${c.time}秒</b><small>ルーム主が決定</small></div>
+      </div>
+      ${d.forcedSolo ? '<p class="center muted">チーム戦は2人以上で遊べるので、今回は個人戦になりました。</p>' : ''}
+      ${isBuzz() ? '<p class="center muted">早押し：いちばん早く正解した人だけが1000点。まちがえるとその問題は答えられません。</p>' : '<p class="center muted">全員が答えられます。速く正解するほど高得点です。</p>'}
+    </div>
+    ${isTeam() ? `<div class="stack reveal-in" id="dec-teams" ${teams ? '' : 'hidden'}><h3 class="center">チーム発表</h3>${teamsHTML()}<p class="center muted" style="font-size:.85rem">チームの得点は、メンバーの平均点です。</p></div>` : ''}
     <p class="center"><span class="muted">スタートまで</span> <span class="timer" id="timer" style="font-size:2rem">${sec}</span></p>
   </div>`;
+}
+// 回っている途中に見せる名前（止まる直前はゆっくりになる）
+function spinningName(i, el){
+  const k = ['format', 'mode', 'genre'][i];
+  const names = ((state.decided.ballot.find((b) => b.key === k) || {}).options || []).map((o) => o.name);
+  if(!names.length) return '';
+  const left = SLOT_STOPS[i] - el;
+  const step = left < 500 ? 220 : left < 1000 ? 140 : 70;
+  return names[Math.floor(el / step + i * 3) % names.length];
+}
+// スロットを回す（render で画面が描き直されても、経過時間から同じ見た目に戻る）
+function spinSlots(){
+  slotRAF = 0;
+  if(!state || state.phase !== 'decided' || !state.config) return;
+  const c = state.config, d = state.decided;
+  const el = decidedElapsed();
+  const lists = ['format', 'mode', 'genre'].map((k) => ((d.ballot.find((b) => b.key === k) || {}).options || []).map((o) => o.name));
+  const results = [c.formatName, c.modeName, c.genreName];
+  const counts = [['format', c.format], ['mode', c.mode], ['genre', c.genre]].map(([k, id]) => (d.tally[k] || {})[id] || 0);
+  lists.forEach((names, i) => {
+    const reel = document.getElementById('reel-' + i), box = document.getElementById('slot-' + i), v = document.getElementById('votes-' + i);
+    if(!reel || !box) return;
+    if(el >= SLOT_STOPS[i] || names.length < 2){
+      if(!box.classList.contains('stopped')){ box.classList.add('stopped'); reel.textContent = results[i]; if(v) v.textContent = counts[i] + '票'; }
+      return;
+    }
+    reel.textContent = spinningName(i, el);
+  });
+  const t = document.getElementById('dec-title');
+  if(t && el >= SLOT_STOPS[2]) t.textContent = 'ルール決定！';
+  const a = document.getElementById('dec-after'); if(a && el >= AFTER_SLOTS) a.hidden = false;
+  const tm = document.getElementById('dec-teams'); if(tm && el >= TEAM_SHOW) tm.hidden = false;
+  if(el < TEAM_SHOW + 100) slotRAF = requestAnimationFrame(spinSlots);
 }
 
 /* question */

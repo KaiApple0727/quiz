@@ -16,7 +16,8 @@ const { GENRES, BANK } = require('./questions');
 const PORT = process.env.PORT || 3000;
 const MAX_PLAYERS = 50;
 const MAX_BOTS = 7;
-const DECIDED_MS = 6000;             // 決定画面（チーム発表）を見せる時間
+const DECIDED_MS = 9000;             // 決定画面（スロットでルール発表）を見せる時間
+const DECIDED_TEAM_MS = 13000;       // チーム戦のとき（スロットのあとにチーム発表）
 const REVEAL_MS = 5000;              // 答え合わせを見せてから次の問題へ自動で進むまでの時間
 const COUNTS = [5, 10, 15];          // ルーム主が選べる問題数
 const TIMES = [10, 15, 20, 30];      // ルーム主が選べる制限時間（秒）
@@ -179,7 +180,8 @@ function closeVote(room) {
   }
   room.phase = 'decided';
   room.decidedAt = Date.now();
-  room.timer = setTimeout(() => startGame(room), DECIDED_MS);
+  room.decidedMs = teamMode(room) ? DECIDED_TEAM_MS : DECIDED_MS;
+  room.timer = setTimeout(() => startGame(room), room.decidedMs);
   broadcast(room);
 }
 function smallerTeam(room) {
@@ -252,7 +254,8 @@ function viewFor(room, player) {
       tally: room.lastTally,
       ballot: BALLOT.map((b) => ({ key: b.key, label: b.label, options: b.options })),
       forcedSolo: room.forcedSolo,
-      remainingMs: Math.max(0, room.decidedAt + DECIDED_MS - Date.now()),
+      remainingMs: Math.max(0, room.decidedAt + room.decidedMs - Date.now()),
+      elapsedMs: Date.now() - room.decidedAt, // スロットの回り具合を全員でそろえるため
     };
   }
   if ((room.phase === 'question' || room.phase === 'reveal') && q) {
