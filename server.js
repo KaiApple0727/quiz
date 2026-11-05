@@ -1,7 +1,8 @@
 // みんなのクイズ大会 — サーバー（追加ライブラリ不要。Node.js 18 以上で動きます）
 // 正解はこのサーバーの中だけにあり、答え合わせの瞬間まで誰のブラウザにも送りません。
 //
-// 流れ : ロビー → 投票（ルールを多数決） → 決定（チーム発表） → 出題 → 答え合わせ → … → 結果発表
+// 流れ : ロビー（ルーム主が問題数・制限時間を決める） → 投票（形式・モード・ジャンルを多数決）
+//        → 決定（チーム発表） → 出題 → 答え合わせ（5秒で自動的に次へ） → … → 結果発表
 // しくみ
 //   画面 → サーバー : POST /api/<操作>   （JSON）
 //   サーバー → 画面 : GET  /events      （Server-Sent Events で状態を送り続ける）
@@ -17,6 +18,9 @@ const MAX_PLAYERS = 50;
 const MAX_BOTS = 7;
 const VOTE_MS = 30000;               // 投票の制限時間
 const DECIDED_MS = 6000;             // 決定画面（チーム発表）を見せる時間
+const REVEAL_MS = 5000;              // 答え合わせを見せてから次の問題へ自動で進むまでの時間
+const COUNTS = [5, 10, 15];          // ルーム主が選べる問題数
+const TIMES = [10, 15, 20, 30];      // ルーム主が選べる制限時間（秒）
 const BUZZ_POINTS = 1000;            // 早押しで正解したときの得点
 const HOST_HANDOVER_MS = 15000;      // ルーム主が切断したまま戻らないとき、次の人に交代するまでの時間
 const ROOM_IDLE_MS = 15 * 60 * 1000; // 誰もいないルームを消すまでの時間
@@ -54,7 +58,7 @@ function pool(genre) {
   return BANK[genre] || [];
 }
 
-// 投票で選ぶもの。id はすべて文字列
+// 投票で選ぶもの（問題数と制限時間はルーム主が決める）。id はすべて文字列
 function ballot() {
   return [
     { key: 'format', label: '形式', options: [
@@ -69,8 +73,6 @@ function ballot() {
       ...GENRES.map((g) => ({ id: g.id, name: g.name, note: g.note, count: pool(g.id).length })),
       { id: 'mix', name: 'ミックス', note: '全ジャンルからランダム', count: pool('mix').length },
     ].filter((g) => g.count > 0), fallback: null },
-    { key: 'count', label: '問題数', options: ['5', '10', '15'].map((v) => ({ id: v, name: `${v}問` })), fallback: '10' },
-    { key: 'time', label: '制限時間', options: ['10', '15', '20', '30'].map((v) => ({ id: v, name: `${v}秒` })), fallback: '15' },
   ];
 }
 const BALLOT = ballot();
@@ -167,8 +169,8 @@ function closeVote(room) {
     format: result.format,
     mode: result.mode,
     genre: result.genre,
-    count: +result.count,
-    time: +result.time,
+    count: room.settings.count,
+    time: room.settings.time,
   };
   room.lastTally = t;
   // チーム分け（ランダム、人数がなるべく同じになるように）
@@ -210,6 +212,8 @@ function viewFor(room, player) {
     code: room.code,
     me: { id: player.id, name: player.name, isHost: room.hostId === player.id, team: player.team || null },
     phase: room.phase,
+    settings: room.settings,
+    choices: { counts: COUNTS, times: TIMES },
     players: [...room.players.values()].map((p) => ({
       id: p.id,
       name: p.name,
@@ -284,6 +288,8 @@ function viewFor(room, player) {
         myCorrect: !!mine && mine.c === q.a,
         myGain: player.gain,
         winner: winner ? { id: winner.id, name: winner.name, team: winner.team, sec: (room.buzzWinner.ms / 1000).toFixed(1) } : null,
+        nextInMs: Math.max(0, room.revealEndsAt - Date.now()),
+        last: room.qIndex + 1 >= room.questions.length,
       };
     }
   }
@@ -340,7 +346,16 @@ function reveal(room) {
     }
   }
   room.phase = 'reveal';
+  room.revealEndsAt = Date.now() + REVEAL_MS;
+  room.timer = setTimeout(() => advance(room), REVEAL_MS);
   broadcast(room);
+}
+// 答え合わせのあと、次の問題（最後なら結果発表）へ進む
+function advance(room) {
+  if (room.phase !== 'reveal') return;
+  clearTimers(room);
+  if (room.qIndex + 1 < room.questions.length) showQuestion(room, room.qIndex + 1);
+  else { room.phase = 'final'; broadcast(room); }
 }
 function submitAnswer(room, p, c) {
   if (room.phase !== 'question' || room.answers.has(p.id)) return false;
@@ -429,7 +444,7 @@ const actions = {
     if (!name) return { ok: false, error: 'ニックネームを入れてください。' };
     const code = newCode();
     const room = {
-      code, hostId: null, players: new Map(), phase: 'lobby',
+      code, hostId: null, players: new Map(), phase: 'lobby', settings: { count: 10, time: 15 },
       config: null, votes: new Map(), questions: [], qIndex: 0, answers: new Map(),
       botTimers: [], lastActive: Date.now(),
     };
@@ -483,6 +498,14 @@ const actions = {
     broadcast(room);
     return { ok: true };
   },
+  settings(body) {
+    const { room, isHost } = auth(body);
+    if (!isHost || !canSetUp(room)) return { ok: false };
+    if (COUNTS.includes(+body.count)) room.settings.count = +body.count;
+    if (TIMES.includes(+body.time)) room.settings.time = +body.time;
+    broadcast(room);
+    return { ok: true };
+  },
   startVote(body) {
     const { room, isHost } = auth(body);
     if (!isHost || !canSetUp(room)) return { ok: false };
@@ -524,8 +547,7 @@ const actions = {
   next(body) {
     const { room, isHost } = auth(body);
     if (!isHost || room.phase !== 'reveal') return { ok: false };
-    if (room.qIndex + 1 < room.questions.length) showQuestion(room, room.qIndex + 1);
-    else { room.phase = 'final'; broadcast(room); }
+    advance(room);
     return { ok: true };
   },
   lobby(body) {

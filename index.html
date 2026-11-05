@@ -276,6 +276,7 @@ function timerSource(){
   if(state.phase === 'vote' && state.vote) return {ms: state.vote.remainingMs, key: 'vote'};
   if(state.phase === 'decided' && state.decided) return {ms: state.decided.remainingMs, key: 'decided'};
   if(state.phase === 'question' && state.question) return {ms: state.question.remainingMs, key: 'q' + state.question.index};
+  if(state.phase === 'reveal' && state.reveal) return {ms: state.reveal.nextInMs, key: 'r' + state.question.index};
   return null;
 }
 function onState(){
@@ -399,6 +400,15 @@ function npcHTML(){
     <p class="muted" style="font-size:.85rem">友達がいなくても、NPCを入れれば1人で大会ができます。名前の×で外せます。NPCは投票しません。</p>
   </div>`;
 }
+function settingsHTML(){
+  const s = state.settings, c = state.choices;
+  if(!isHost()) return `<p class="muted">問題数 <b>${s.count}問</b> ・ 制限時間 <b>${s.time}秒</b>（ルーム主が決めます）</p>`;
+  const seg = (list, cur, key, unit) => '<div class="seg">' + list.map((v) => `<button type="button" data-act="setting" data-k="${key}" data-v="${v}" aria-pressed="${cur === v}">${v}${unit}</button>`).join('') + '</div>';
+  return `<div class="setting-row">
+    <div><span class="lbl">問題数</span>${seg(c.counts, s.count, 'count', '問')}</div>
+    <div><span class="lbl">制限時間（1問）</span>${seg(c.times, s.time, 'time', '秒')}</div>
+  </div>`;
+}
 function teamsHTML(opts){
   if(!isTeam()) return '';
   const o = opts || {};
@@ -428,11 +438,13 @@ function lobbyHTML(){
     </div>
     <div class="panel stack">
       ${host ? `<h2 style="font-size:1.2rem">メンバーがそろったら、はじめよう</h2>
-        <p class="muted">「はじめる」を押すと、全員で投票して形式・モード・ジャンル・問題数・制限時間を決めます。</p>
+        <p class="muted">問題数と制限時間はここで決めます。「はじめる」を押すと、全員で投票して形式・モード・ジャンルを決めます。</p>
+        ${settingsHTML()}
         ${npcHTML()}
         <div class="row" style="justify-content:flex-end"><button class="btn hi" data-act="startVote">はじめる</button></div>`
       : `<h2 style="font-size:1.2rem">ルーム主がはじめるのを待っています</h2>
-        <p class="muted">はじまったら、みんなでルールを投票で決めます。</p>`}
+        <p class="muted">はじまったら、みんなで形式・モード・ジャンルを投票で決めます。</p>
+        ${settingsHTML()}`}
     </div>`;
 }
 
@@ -469,12 +481,12 @@ function decidedHTML(){
     ['形式', c.formatName, votes('format', c.format)],
     ['モード', c.modeName, votes('mode', c.mode)],
     ['ジャンル', c.genreName, votes('genre', c.genre)],
-    ['問題数', c.count + '問', votes('count', String(c.count))],
-    ['制限時間', c.time + '秒', votes('time', String(c.time))],
+    ['問題数', c.count + '問', null],
+    ['制限時間', c.time + '秒', null],
   ];
   return `<div class="stack">
     <div class="marquee"><h1>ルール決定！</h1></div>
-    <div class="rules">${items.map(([l, v, n]) => `<div class="rule"><small>${l}</small><b>${esc(v)}</b><small>${n}票</small></div>`).join('')}</div>
+    <div class="rules">${items.map(([l, v, n]) => `<div class="rule"><small>${l}</small><b>${esc(v)}</b><small>${n == null ? 'ルーム主が決定' : n + '票'}</small></div>`).join('')}</div>
     ${d.forcedSolo ? '<p class="center muted">チーム戦は2人以上で遊べるので、今回は個人戦になりました。</p>' : ''}
     ${isBuzz() ? '<p class="center muted">早押し：いちばん早く正解した人だけが1000点。まちがえるとその問題は答えられません。</p>' : '<p class="center muted">全員が答えられます。速く正解するほど高得点です。</p>'}
     ${isTeam() ? `<h3 class="center">チーム発表</h3>${teamsHTML()}<p class="center muted" style="font-size:.85rem">チームの得点は、メンバーの平均点です。</p>` : ''}
@@ -573,9 +585,8 @@ function revealHTML(){
     ${isTeam() ? `<h3>チーム</h3>${teamsHTML({scores:true, gain:true})}` : ''}
     <h3>順位</h3>
     ${rankHTML(8)}
-    ${isHost()
-      ? `<div class="row" style="justify-content:flex-end"><button class="btn hi" data-act="next">${last ? '結果発表へ' : '次の問題へ'}</button></div>`
-      : `<p class="center muted">ルーム主が次へ進めるのを待っています…</p>`}
+    <div class="meter"><span class="muted">${last ? '結果発表' : '次の問題'}まで <span class="count" id="nexttimer">${Math.ceil(remainingMs() / 1000)}</span> 秒</span>
+      ${isHost() ? `<button class="btn small ghost" data-act="next">すぐ${last ? '結果発表へ' : '次へ'}</button>` : ''}</div>
   </div>`;
 }
 
@@ -597,7 +608,7 @@ function finalHTML(){
     <div class="podium">${pod(r[1], 'p2', '2')}${pod(r[0], 'p1', '1')}${pod(r[2], 'p3', '3')}</div>
     ${rankHTML()}
     ${isHost()
-      ? `<div class="panel stack">${npcHTML()}<div class="row" style="justify-content:center"><button class="btn ghost" data-act="lobby">ロビーに戻る</button><button class="btn hi" data-act="startVote">もう一度（ルールを投票）</button></div></div>`
+      ? `<div class="panel stack">${settingsHTML()}${npcHTML()}<div class="row" style="justify-content:center"><button class="btn ghost" data-act="lobby">ロビーに戻る</button><button class="btn hi" data-act="startVote">もう一度（ルールを投票）</button></div></div>`
       : `<p class="center muted">ルーム主が次のゲームを始めるまでお待ちください。</p>`}
   </div>`;
 }
@@ -607,9 +618,10 @@ setInterval(() => {
   if(!state) return;
   const t = timerSource(); if(!t) return;
   const ms = remainingMs(), sec = Math.ceil(ms / 1000);
-  const el = $('#timer'), bar = $('#tbar');
-  if(el){ el.textContent = sec; if(state.phase !== 'decided') el.classList.toggle('low', sec <= 5); }
-  if(bar){
+  const el = $('#timer'), bar = $('#tbar'), nx = $('#nexttimer');
+  if(nx) nx.textContent = sec;
+  if(el && state.phase !== 'reveal'){ el.textContent = sec; if(state.phase !== 'decided') el.classList.toggle('low', sec <= 5); }
+  if(bar && state.phase !== 'reveal'){
     const total = state.phase === 'vote' ? 30000 : state.question ? state.question.time * 1000 : 1;
     bar.style.width = (100 * ms / total) + '%';
   }
@@ -625,6 +637,7 @@ document.addEventListener('click', async (e) => {
     case 'botLevel': botLevel = v; store('quiz.botLevel', v); render(); break;
     case 'addBot': { const r = await api('addBot', {level: botLevel}); if(!r.ok && r.error) toast(r.error); break; }
     case 'removeBot': api('removeBot', {id: v}); break;
+    case 'setting': api('settings', {[b.dataset.k]: +v}); break;
     case 'startVote': { const r = await api('startVote'); if(!r.ok && r.error) toast(r.error); break; }
     case 'vote': {
       // 押したらすぐ見た目に反映し、サーバーにも送る
