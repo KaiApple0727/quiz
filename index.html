@@ -79,6 +79,8 @@ input.code{font-family:var(--dot);font-size:1.8rem;letter-spacing:.3em;text-alig
 .chip{padding:6px 14px;border-radius:999px;background:var(--surface);border:2px solid var(--line);font-weight:700;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;animation:pop .25s ease-out}
 .chip.me{border-color:var(--hi);background:var(--hi);color:var(--on-hi)}
 .chip.off{opacity:.45}
+.chip.ready{border-color:var(--good);color:var(--good)}
+.chip.ready.me{background:var(--good);color:var(--surface);border-color:var(--good)}
 .chip .crown{font-size:.75rem;margin-left:4px}
 .chip.bot{border-style:dashed;display:inline-flex;align-items:center;gap:6px}
 .npc{display:inline-block;font-family:var(--dot);font-size:.72rem;font-weight:400;padding:0 6px;border-radius:6px;background:var(--line);color:var(--ink);letter-spacing:.04em;vertical-align:middle}
@@ -273,7 +275,6 @@ function leaveLocal(msg){
 /* ---------- state ---------- */
 function timerSource(){
   if(!state) return null;
-  if(state.phase === 'vote' && state.vote) return {ms: state.vote.remainingMs, key: 'vote'};
   if(state.phase === 'decided' && state.decided) return {ms: state.decided.remainingMs, key: 'decided'};
   if(state.phase === 'question' && state.question) return {ms: state.question.remainingMs, key: 'q' + state.question.index};
   if(state.phase === 'reveal' && state.reveal) return {ms: state.reveal.nextInMs, key: 'r' + state.question.index};
@@ -450,26 +451,37 @@ function lobbyHTML(){
 
 /* vote */
 function voteHTML(){
-  const v = state.vote, sec = Math.ceil(remainingMs() / 1000);
+  const v = state.vote;
   const allMine = v.ballot.every((b) => v.mine[b.key]);
   const secs = v.ballot.map((b) => {
-    const cls = b.key === 'format' || b.key === 'mode' ? 'two' : (b.key === 'count' || b.key === 'time') ? 'small' : '';
+    const cls = b.key === 'format' || b.key === 'mode' ? 'two' : '';
     return `<div class="vote-sec">
       <span class="lbl">${esc(b.label)}</span>
       <div class="vote-opts ${cls}">${b.options.map((o) => {
         const n = v.tally[b.key][o.id] || 0;
-        return `<button type="button" class="vopt" data-act="vote" data-k="${esc(b.key)}" data-v="${esc(o.id)}" aria-pressed="${v.mine[b.key] === o.id}">
+        return `<button type="button" class="vopt" data-act="vote" data-k="${esc(b.key)}" data-v="${esc(o.id)}" aria-pressed="${v.mine[b.key] === o.id}" ${v.myReady ? 'disabled' : ''}>
           <span class="n${n ? '' : ' zero'}">${n}</span><b>${esc(o.name)}</b>${o.note ? `<small>${esc(o.note)}</small>` : ''}</button>`;
       }).join('')}</div>
     </div>`;
   }).join('');
+  const people = '<div class="chips">' + v.people.map((p) =>
+    `<span class="chip${p.ready ? ' ready' : ''}${p.id === me().id ? ' me' : ''}">${p.ready ? '✓ ' : ''}${esc(p.name)}</span>`).join('') + '</div>';
+  const readyBtn = v.myReady
+    ? `<button class="btn ghost" data-act="ready" data-v="0">準備OKを取り消す</button>`
+    : `<button class="btn hi" data-act="ready" data-v="1" ${allMine ? '' : 'disabled'}>準備OK</button>`;
+  const note = v.myReady
+    ? '準備OKです。みんながそろうのを待っています。投票を変えたいときは取り消してください。'
+    : allMine ? '選び終わったら「準備OK」を押してください。' : '形式・モード・ジャンルをそれぞれ1つずつ選んでください。';
   return `<div class="stack">
-    <div class="qhead"><h2 style="font-size:clamp(1.3rem,5vw,1.8rem)">ルールを投票で決めよう</h2><span class="timer${sec <= 5 ? ' low' : ''}" id="timer">${sec}</span></div>
-    <div class="bar"><i id="tbar" style="width:${100 * remainingMs() / 30000}%"></i></div>
-    <p class="muted">${allMine ? '投票しました。締め切りまでは変えられます。' : 'それぞれ1つずつ選んでください。'}数字は今の票数です。同じ票数のときはランダムで決まります。</p>
+    <h2 style="font-size:clamp(1.3rem,5vw,1.8rem)">ルールを投票で決めよう</h2>
+    <p class="muted">数字は今の票数です。全員が「準備OK」を押したら、票の多いルールで始まります。同じ票数のときはランダムで決まります。</p>
     ${secs}
-    <div class="meter"><span class="muted">投票した人 <span class="count">${v.voted} / ${v.voters}</span></span>
-      ${isHost() ? '<button class="btn small ghost" data-act="closeVote">投票を締め切る</button>' : ''}</div>
+    <div class="panel stack" style="padding:16px">
+      <div class="meter"><span>準備OK <span class="count">${v.readyCount} / ${v.voters}</span></span>${readyBtn}</div>
+      ${people}
+      <p class="muted center" style="font-size:.88rem">${note}</p>
+    </div>
+    ${isHost() ? `<p class="center"><button class="link" data-act="closeVote">待たずに締め切る（ルーム主）</button></p>` : ''}
   </div>`;
 }
 
@@ -622,7 +634,7 @@ setInterval(() => {
   if(nx) nx.textContent = sec;
   if(el && state.phase !== 'reveal'){ el.textContent = sec; if(state.phase !== 'decided') el.classList.toggle('low', sec <= 5); }
   if(bar && state.phase !== 'reveal'){
-    const total = state.phase === 'vote' ? 30000 : state.question ? state.question.time * 1000 : 1;
+    const total = state.question ? state.question.time * 1000 : 1;
     bar.style.width = (100 * ms / total) + '%';
   }
   if(state.phase === 'question' && ms <= 0 && state.myAnswer == null && pendingAnswer == null && !$('#stage').dataset.out){ $('#stage').dataset.out = '1'; render(); }
@@ -647,6 +659,13 @@ document.addEventListener('click', async (e) => {
       break;
     }
     case 'closeVote': api('closeVote'); break;
+    case 'ready': {
+      const on = v === '1';
+      if(state.vote){ state.vote.myReady = on; render(); }
+      const r = await api('ready', {on});
+      if(!r.ok){ if(state.vote) state.vote.myReady = !on; render(); if(r.error) toast(r.error); }
+      break;
+    }
     case 'answer': {
       if(state.myAnswer != null || pendingAnswer != null || remainingMs() <= 0) return;
       pendingAnswer = +v; render();

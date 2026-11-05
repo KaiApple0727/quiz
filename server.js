@@ -1,7 +1,7 @@
 // みんなのクイズ大会 — サーバー（追加ライブラリ不要。Node.js 18 以上で動きます）
 // 正解はこのサーバーの中だけにあり、答え合わせの瞬間まで誰のブラウザにも送りません。
 //
-// 流れ : ロビー（ルーム主が問題数・制限時間を決める） → 投票（形式・モード・ジャンルを多数決）
+// 流れ : ロビー（ルーム主が問題数・制限時間を決める） → 投票（形式・モード・ジャンルを多数決。全員が準備OKで締め切り）
 //        → 決定（チーム発表） → 出題 → 答え合わせ（5秒で自動的に次へ） → … → 結果発表
 // しくみ
 //   画面 → サーバー : POST /api/<操作>   （JSON）
@@ -16,7 +16,6 @@ const { GENRES, BANK } = require('./questions');
 const PORT = process.env.PORT || 3000;
 const MAX_PLAYERS = 50;
 const MAX_BOTS = 7;
-const VOTE_MS = 30000;               // 投票の制限時間
 const DECIDED_MS = 6000;             // 決定画面（チーム発表）を見せる時間
 const REVEAL_MS = 5000;              // 答え合わせを見せてから次の問題へ自動で進むまでの時間
 const COUNTS = [5, 10, 15];          // ルーム主が選べる問題数
@@ -134,16 +133,16 @@ function startVote(room) {
   clearTimers(room);
   room.phase = 'vote';
   room.votes = new Map();
-  room.voteDeadline = Date.now() + VOTE_MS;
-  room.timer = setTimeout(() => closeVote(room), VOTE_MS);
+  room.ready = new Set();
   broadcast(room);
 }
+// 全員が「準備OK」を押したら締め切る（制限時間はなし。ルーム主は途中で締め切れる）
 function maybeCloseVote(room) {
   if (room.phase !== 'vote') return;
   const live = onlineHumans(room);
-  if (live.length && live.every((p) => fullyVoted(room, p))) {
-    clearTimeout(room.timer);
-    room.timer = setTimeout(() => closeVote(room), 1000);
+  clearTimeout(room.timer);
+  if (live.length && live.every((p) => room.ready.has(p.id))) {
+    room.timer = setTimeout(() => closeVote(room), 800);
   }
 }
 function closeVote(room) {
@@ -242,10 +241,10 @@ function viewFor(room, player) {
       ballot: BALLOT.map((b) => ({ key: b.key, label: b.label, options: b.options })),
       tally: tally(room),
       mine: room.votes.get(player.id) || {},
-      voted: live.filter((p) => fullyVoted(room, p)).length,
+      readyCount: live.filter((p) => room.ready.has(p.id)).length,
       voters: live.length,
-      remainingMs: Math.max(0, room.voteDeadline - Date.now()),
-      canVote: !player.bot,
+      people: live.map((p) => ({ id: p.id, name: p.name, ready: room.ready.has(p.id) })),
+      myReady: room.ready.has(player.id),
     };
   }
   if (room.phase === 'decided') {
@@ -445,7 +444,7 @@ const actions = {
     const code = newCode();
     const room = {
       code, hostId: null, players: new Map(), phase: 'lobby', settings: { count: 10, time: 15 },
-      config: null, votes: new Map(), questions: [], qIndex: 0, answers: new Map(),
+      config: null, votes: new Map(), ready: new Set(), questions: [], qIndex: 0, answers: new Map(),
       botTimers: [], lastActive: Date.now(),
     };
     rooms.set(code, room);
@@ -473,6 +472,7 @@ const actions = {
     for (const res of me.streams) res.end();
     room.players.delete(me.id);
     room.votes.delete(me.id);
+    if (room.ready) room.ready.delete(me.id);
     if (humans(room).length === 0) { deleteRoom(room); return { ok: true }; }
     if (room.hostId === me.id) room.hostId = (onlineHumans(room)[0] || humans(room)[0]).id;
     maybeAutoReveal(room);
@@ -515,11 +515,24 @@ const actions = {
   vote(body) {
     const { room, me } = auth(body);
     if (!me || room.phase !== 'vote') return { ok: false };
+    if (room.ready.has(me.id)) return { ok: false, error: '準備OKを取り消すと、投票を変えられます。' };
     const b = BALLOT.find((x) => x.key === body.key);
     if (!b || !b.options.some((o) => o.id === String(body.value))) return { ok: false };
     const mine = { ...(room.votes.get(me.id) || {}) };
     mine[b.key] = String(body.value);
     room.votes.set(me.id, mine);
+    broadcast(room);
+    return { ok: true };
+  },
+  ready(body) {
+    const { room, me } = auth(body);
+    if (!me || room.phase !== 'vote') return { ok: false };
+    if (body.on) {
+      if (!fullyVoted(room, me)) return { ok: false, error: 'すべての項目に投票してから押してください。' };
+      room.ready.add(me.id);
+    } else {
+      room.ready.delete(me.id);
+    }
     broadcast(room);
     maybeCloseVote(room);
     return { ok: true };
