@@ -1,0 +1,12 @@
+{
+  "name": "minna-no-quiz-taikai",
+  "version": "1.0.0",
+  "description": "ログインなしで遊べるオンラインクイズ大会",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
