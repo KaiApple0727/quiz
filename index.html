@@ -157,6 +157,17 @@ button.ans:disabled{cursor:default}
 .confetti i{position:absolute;top:-20px;width:9px;height:14px;border-radius:2px;animation-name:fall;animation-timing-function:linear;animation-fill-mode:forwards}
 @keyframes fall{to{transform:translateY(110vh) rotate(720deg)}}
 
+/* updates */
+.updates{gap:10px}
+.upd-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px}
+.upd{display:flex;flex-direction:column;gap:4px;padding-bottom:12px;border-bottom:1.5px dashed var(--line)}
+.upd-list > .upd:last-child{border-bottom:0;padding-bottom:0}
+.upd-h{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.upd-d{font-family:var(--dot);color:var(--muted);font-size:.9rem;font-variant-numeric:tabular-nums}
+.upd ul{margin:0;padding-left:1.2em;color:var(--muted);font-size:.92rem}
+.updates details summary{cursor:pointer;color:var(--muted);font-size:.9rem;padding:4px 0}
+.updates details[open] summary{margin-bottom:10px}
+
 /* typing */
 .typing{display:flex;gap:10px;align-items:stretch}
 .typing input{flex:1;min-width:0;font-size:1.3rem;padding:14px 16px;border-width:3px;border-color:var(--ink)}
@@ -442,7 +453,35 @@ function homeHTML(){
         <button class="btn" type="submit" style="margin-top:auto">新しいルームを作る</button>
       </form>
     </div>
-    <p class="err center" id="home-err">${esc(homeError)}</p>`;
+    <p class="err center" id="home-err">${esc(homeError)}</p>
+    ${updatesHTML()}`;
+}
+// アップデート情報（updates.json の新しい順）
+let updates = null;
+function loadUpdates(){
+  fetch('/updates.json', {cache: 'no-cache'}).then((r) => r.json()).then((list) => {
+    updates = Array.isArray(list) ? list : [];
+    if(!session) render();
+  }).catch(() => { updates = []; });
+}
+function fmtDate(d){
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d || '');
+  return m ? `${+m[2]}月${+m[3]}日` : esc(d || '');
+}
+function updateItem(u, isNew){
+  return `<li class="upd">
+    <div class="upd-h"><span class="upd-d">${fmtDate(u.date)}</span>${isNew ? '<span class="tag">NEW</span>' : ''}<b>${esc(u.title)}</b></div>
+    ${Array.isArray(u.items) && u.items.length ? `<ul>${u.items.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}
+  </li>`;
+}
+function updatesHTML(){
+  if(!updates || !updates.length) return '';
+  const head = updates.slice(0, 3), rest = updates.slice(3);
+  return `<section class="panel stack updates" aria-label="アップデート情報">
+    <h2 style="font-size:1.15rem">アップデート情報</h2>
+    <ul class="upd-list">${head.map((u, i) => updateItem(u, i === 0)).join('')}</ul>
+    ${rest.length ? `<details><summary>これまでのアップデート（${rest.length}件）</summary><ul class="upd-list">${rest.map((u) => updateItem(u, false)).join('')}</ul></details>` : ''}
+  </section>`;
 }
 function bindHome(){
   const nameEl = $('#name'), codeEl = $('#code'), err = $('#home-err');
@@ -1021,6 +1060,7 @@ document.addEventListener('submit', async (e) => {
 });
 
 /* ---------- boot ---------- */
+loadUpdates();
 (async function boot(){
   const urlCode = new URLSearchParams(location.search).get('room');
   if(session && (!urlCode || urlCode === session.code)){

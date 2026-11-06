@@ -698,6 +698,19 @@ const actions = {
 const INDEX = [path.join(__dirname, 'public', 'index.html'), path.join(__dirname, 'index.html')]
   .find((p) => fs.existsSync(p)) || path.join(__dirname, 'public', 'index.html');
 
+// アップデート情報（updates.json）。public フォルダの中か server.js と同じ場所に置く
+const UPDATES = [path.join(__dirname, 'updates.json'), path.join(__dirname, 'public', 'updates.json')];
+function sendUpdates(res) {
+  const file = UPDATES.find((p) => fs.existsSync(p));
+  if (!file) { res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }); res.end('[]'); return; }
+  fs.readFile(file, 'utf8', (err, text) => {
+    let list = [];
+    try { list = JSON.parse(text); } catch { list = []; }
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-cache' });
+    res.end(JSON.stringify(Array.isArray(list) ? list : []));
+  });
+}
+
 function openStream(req, res, url) {
   const { room, me } = auth({ code: url.searchParams.get('code'), token: url.searchParams.get('token') });
   if (!me) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('gone'); return; }
@@ -747,6 +760,7 @@ const server = http.createServer(async (req, res) => {
   }
   if (req.method === 'GET' && url.pathname === '/events') return openStream(req, res, url);
   if (req.method === 'GET' && url.pathname === '/healthz') { res.end('ok'); return; }
+  if (req.method === 'GET' && url.pathname === '/updates.json') return sendUpdates(res);
   if (req.method === 'POST' && url.pathname.startsWith('/api/')) {
     const fn = actions[url.pathname.slice(5)];
     const body = await readJson(req);
