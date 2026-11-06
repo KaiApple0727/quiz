@@ -259,8 +259,14 @@ function teamBoard(room) {
     };
   });
 }
+// 終盤（最後の約3割の問題）は、合計点・順位・チーム得点をかくす
+const HIDE_RATIO = 0.3;
+const hideFromIndex = (total) => total - Math.max(1, Math.ceil(total * HIDE_RATIO));
+const scoresHidden = (room) => (room.phase === 'question' || room.phase === 'reveal') && room.qIndex >= room.hideFrom;
+
 function viewFor(room, player) {
   const q = room.questions[room.qIndex];
+  const hidden = scoresHidden(room);
   const v = {
     code: room.code,
     me: { id: player.id, name: player.name, isHost: room.hostId === player.id, team: player.team || null },
@@ -270,8 +276,9 @@ function viewFor(room, player) {
     players: [...room.players.values()].map((p) => ({
       id: p.id,
       name: p.name,
-      score: p.score,
-      gain: p.gain,
+      // かくしているあいだは点数を送らない（自分のこの問題の得点だけは見せる）
+      score: hidden ? null : p.score,
+      gain: hidden ? (p.id === player.id ? p.gain : 0) : p.gain,
       connected: isConnected(p),
       isHost: room.hostId === p.id,
       bot: !!p.bot,
@@ -291,7 +298,11 @@ function viewFor(room, player) {
       leveled: hasLevels(room.config.genre),
     };
     v.teams = teamBoard(room);
+    if (v.teams && hidden) v.teams = v.teams.map((t) => ({ ...t, score: null, gain: null }));
+    v.hidden = hidden;
+    v.hideFrom = room.hideFrom;
   }
+  if (room.phase === 'final') v.finalElapsedMs = Date.now() - room.finalAt; // 結果発表の演出を全員でそろえるため
   if (room.phase === 'vote') {
     const live = onlineHumans(room);
     v.vote = {
@@ -380,6 +391,7 @@ function startGame(room) {
     const typing = typable(q) && (answer === 'typing' || (answer === 'mixed' && Math.random() < 0.5));
     return { t: q.t, c: order.map((i) => q.c[i]), a: order.indexOf(0), typing, accept: typing ? acceptList(q) : null };
   });
+  room.hideFrom = hideFromIndex(room.questions.length);
   for (const p of room.players.values()) { p.score = 0; p.gain = 0; }
   showQuestion(room, 0);
 }
@@ -421,7 +433,7 @@ function advance(room) {
   if (room.phase !== 'reveal') return;
   clearTimers(room);
   if (room.qIndex + 1 < room.questions.length) showQuestion(room, room.qIndex + 1);
-  else { room.phase = 'final'; broadcast(room); }
+  else { room.phase = 'final'; room.finalAt = Date.now(); broadcast(room); }
 }
 // input は { c: 選んだ番号 } か { text: 入力した答え }
 function submitAnswer(room, p, input) {

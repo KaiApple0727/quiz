@@ -126,6 +126,37 @@ button.ans:disabled{cursor:default}
 .meter{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
 .count{font-family:var(--dot);font-size:1.3rem}
 
+/* hidden scores & final */
+.secret{display:flex;flex-direction:column;align-items:center;gap:4px;padding:18px;border-radius:16px;border:2px dashed var(--line);background:var(--surface);text-align:center}
+.secret b{font-family:var(--display);font-weight:400;font-size:1.8rem;letter-spacing:.2em}
+.secret span{color:var(--muted);font-size:.9rem}
+.stretch{margin:0;padding:8px 12px;border-radius:12px;background:var(--ink);color:var(--hi);text-align:center;font-weight:700;animation:fadeup .4s ease-out}
+.pod .blk{transition:filter .3s}
+.pod:not(.shown) .blk{filter:grayscale(1) brightness(.85)}
+.pod:not(.shown) .nm{color:var(--muted)}
+.pod.shown{animation:podpop .45s ease-out}
+@keyframes podpop{0%{transform:translateY(12px) scale(.9);opacity:.3}60%{transform:translateY(-4px) scale(1.05);opacity:1}100%{transform:none}}
+.drum{margin:0;text-align:center;font-family:var(--display);font-size:clamp(1.6rem,7vw,2.4rem);animation:drum .5s ease-in-out infinite alternate}
+@keyframes drum{from{transform:scale(1)}to{transform:scale(1.08)}}
+.tbars{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:end;padding:0 8%}
+.tcol{display:flex;flex-direction:column;align-items:center;gap:8px;min-width:0}
+.tcol .num{font-family:var(--dot);font-size:clamp(1.8rem,8vw,2.6rem);line-height:1;font-variant-numeric:tabular-nums}
+.tcol .track{width:100%;height:240px;border-radius:14px 14px 6px 6px;background:var(--surface);border:2px solid var(--line);display:flex;align-items:flex-end;overflow:hidden}
+.tcol .fill{width:100%;height:0;border-radius:10px 10px 4px 4px}
+.tcol.red .fill{background:var(--team-red)} .tcol.blue .fill{background:var(--team-blue)}
+.tcol .tname{font-family:var(--display);font-size:1.05rem;text-align:center}
+.tcol .tname small{display:block;font-family:var(--body);font-size:.75rem;color:var(--muted)}
+.tbars.hold .track{animation:wobble .18s linear infinite}
+.tcol{transition:opacity .4s}
+.tbars.decided .tcol:not(.win){opacity:.4}
+.tbars.decided .tcol.win .num{color:var(--good)}
+.tmsg{min-height:1.4em}
+.tmsg.shake{animation:wobble .2s linear infinite}
+@keyframes wobble{0%{transform:translateX(0)}25%{transform:translateX(-2px)}75%{transform:translateX(2px)}100%{transform:translateX(0)}}
+.confetti{position:fixed;inset:0;pointer-events:none;overflow:hidden;z-index:30}
+.confetti i{position:absolute;top:-20px;width:9px;height:14px;border-radius:2px;animation-name:fall;animation-timing-function:linear;animation-fill-mode:forwards}
+@keyframes fall{to{transform:translateY(110vh) rotate(720deg)}}
+
 /* typing */
 .typing{display:flex;gap:10px;align-items:stretch}
 .typing input{flex:1;min-width:0;font-size:1.3rem;padding:14px 16px;border-width:3px;border-color:var(--ink)}
@@ -381,6 +412,8 @@ function render(){
     ph === 'reveal' ? revealHTML() :
     ph === 'final' ? finalHTML() : '';
   if(ph === 'decided' && !slotRAF) slotRAF = requestAnimationFrame(spinSlots);
+  if(ph === 'final'){ if(!finalRAF) finalRAF = requestAnimationFrame(animateFinal); }
+  else finalStart = 0;
   if(ph !== 'decided'){ decidedStart = 0; decidedKey = null; }
 }
 
@@ -472,13 +505,14 @@ function settingsHTML(){
 function teamsHTML(opts){
   if(!isTeam()) return '';
   const o = opts || {};
-  const lead = Math.max(...state.teams.map((t) => t.score));
-  const tied = state.teams.every((t) => t.score === lead);
+  const hide = state.teams.some((t) => t.score == null);
+  const lead = Math.max(...state.teams.map((t) => t.score || 0));
+  const tied = hide || state.teams.every((t) => t.score === lead);
   return '<div class="teams">' + state.teams.map((t) => {
     const names = t.members.map((id) => (state.players.find((p) => p.id === id) || {}).name).filter(Boolean);
     return `<div class="team ${t.id}${o.scores && !tied && t.score === lead ? ' lead' : ''}">
       <span class="tn">${esc(t.name)}${me().team === t.id ? '（あなた）' : ''}</span>
-      ${o.scores ? `<span class="ts">${t.score}</span>${o.gain && t.gain ? `<span class="tg">+${t.gain}</span>` : ''}` : ''}
+      ${o.scores ? (hide ? '<span class="ts">？？？</span>' : `<span class="ts">${t.score}</span>${o.gain && t.gain ? `<span class="tg">+${t.gain}</span>` : ''}`) : ''}
       <span class="tm">${names.map(esc).join('、') || 'メンバーなし'}</span>
     </div>`;
   }).join('') + '</div>';
@@ -688,7 +722,10 @@ function typingHTML(locked){
 function questionHTML(){
   const q = state.question;
   const locked = questionLocked();
+  const lastStretch = state.hidden && q.index === state.hideFrom
+    ? `<p class="stretch">ここから終盤！ 順位と合計点はかくされます</p>` : '';
   return `<div class="stack">
+    ${lastStretch}
     ${qHead()}
     <div class="bar"><i id="tbar" style="width:${100 * remainingMs() / (q.time * 1000)}%"></i></div>
     <div class="qtext">${esc(q.text)}</div>
@@ -702,11 +739,15 @@ function questionHTML(){
 function ranking(){
   return state.players.slice().sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
 }
+function hiddenNote(){
+  return `<div class="secret"><b>？？？</b><span>ここからは順位と合計点をかくしています。<br>最後の結果発表をお楽しみに！</span></div>`;
+}
 function rankHTML(limit){
+  if(state.hidden) return hiddenNote();
   const r = ranking(); let pos = 0, prev = null;
   return '<ol class="rank">' + r.slice(0, limit || r.length).map((x, i) => {
     if(x.score !== prev){ pos = i + 1; prev = x.score; }
-    return `<li class="${x.id === me().id ? 'me' : ''}"><span class="pos">${pos}</span><span class="nm">${teamDot(x)}${esc(x.name)}${npcTag(x)}</span><span class="gain">${x.gain ? '+' + x.gain : ''}</span><span class="sc">${x.score}</span></li>`;
+    return `<li class="${x.id === me().id ? 'me' : ''}"><span class="pos">${pos}</span><span class="nm">${teamDot(x)}${esc(x.name)}${npcTag(x)}</span><span class="gain">${x.gain && state.phase !== 'final' ? '+' + x.gain : ''}</span><span class="sc">${x.score}</span></li>`;
   }).join('') + '</ol>';
 }
 function myPos(){
@@ -744,7 +785,7 @@ function revealHTML(){
       <div class="verdict ${cls}" style="${verdict.length > 8 ? 'font-size:clamp(1.6rem,7vw,2.6rem)' : ''}">${verdict}</div>
       ${rv.myGain ? `<div class="pts">+${rv.myGain}</div>` : ''}
       ${sub}
-      <p class="muted">合計 ${mine.score}点 ・ いま ${myPos()}位</p>
+      <p class="muted">${state.hidden ? '合計点と順位は結果発表までひみつ' : `合計 ${mine.score}点 ・ いま ${myPos()}位`}</p>
     </div>
     <div class="qtext" style="font-size:1.25rem">${esc(q.text)}</div>
     ${answerBlock}
@@ -757,26 +798,144 @@ function revealHTML(){
 }
 
 /* final */
+// 結果発表の演出（ミリ秒）。全員の画面でそろうよう、サーバーからの経過時間で動かす
+const FIN_SOLO = { p3: 1600, p2: 3600, drum: 5600, p1: 8000, rest: 9400 };
+const FIN_TEAM = { rise: 1200, riseEnd: 5600, hold: 7400, win: 9400, rest: 10800 };
+let finalStart = 0, finalRAF = 0;
+function finalElapsed(){ return reducedMotion ? 999999 : Date.now() - finalStart; }
+function finalButtonsHTML(){
+  return isHost()
+    ? `<div class="panel stack">${settingsHTML()}${npcHTML()}<div class="row" style="justify-content:center"><button class="btn ghost" data-act="lobby">ロビーに戻る</button><button class="btn hi" data-act="startVote">もう一度（ルールを投票）</button></div></div>`
+    : `<p class="center muted">ルーム主が次のゲームを始めるまでお待ちください。</p>`;
+}
+function rankNumber(x){ return ranking().filter((y) => y.score > x.score).length + 1; }
 function finalHTML(){
-  const r = ranking();
-  const pod = (x, cls, label) => x ? `<div class="pod ${cls}"><span class="nm">${esc(x.name)}</span><span class="sc">${x.score}点</span><div class="blk">${label}</div></div>` : `<div class="pod ${cls}"></div>`;
-  let teamPart = '';
-  if(isTeam()){
-    const [a, b] = state.teams;
-    const head = a.score === b.score ? '引き分け！' : `${esc((a.score > b.score ? a : b).name)}の勝ち！`;
-    const mineWon = a.score !== b.score && me().team === (a.score > b.score ? a : b).id;
-    teamPart = `<div class="marquee" style="padding:0"><p class="banner">${head}</p>${me().team && a.score !== b.score ? `<p class="muted">${mineWon ? 'あなたのチームの勝ちです' : 'あなたのチームは負けてしまいました'}</p>` : ''}</div>
-      ${teamsHTML({scores:true})}<h3>個人の成績</h3>`;
-  }
-  return `<div class="stack">
-    <div class="marquee"><h1>結果発表</h1><p class="pts">あなたは ${myPos()}位</p></div>
-    ${teamPart}
-    <div class="podium">${pod(r[1], 'p2', '2')}${pod(r[0], 'p1', '1')}${pod(r[2], 'p3', '3')}</div>
-    ${rankHTML()}
-    ${isHost()
-      ? `<div class="panel stack">${settingsHTML()}${npcHTML()}<div class="row" style="justify-content:center"><button class="btn ghost" data-act="lobby">ロビーに戻る</button><button class="btn hi" data-act="startVote">もう一度（ルールを投票）</button></div></div>`
-      : `<p class="center muted">ルーム主が次のゲームを始めるまでお待ちください。</p>`}
+  if(!finalStart) finalStart = Date.now() - (state.finalElapsedMs || 0);
+  return isTeam() ? teamFinalHTML() : soloFinalHTML();
+}
+function soloFinalHTML(){
+  const r = ranking(), el = finalElapsed(), T = FIN_SOLO;
+  const pod = (x, cls, at) => {
+    if(!x) return `<div class="pod ${cls}"></div>`;
+    const shown = el >= at;
+    return `<div class="pod ${cls}${shown ? ' shown' : ''}" data-at="${at}" data-name="${esc(x.name)}" data-score="${x.score}点">
+      <span class="nm">${shown ? esc(x.name) : '？？？'}</span><span class="sc">${shown ? x.score + '点' : '&nbsp;'}</span>
+      <div class="blk">${rankNumber(x)}</div></div>`;
+  };
+  return `<div class="stack final">
+    <div class="marquee"><h1>結果発表</h1></div>
+    <div class="podium">${pod(r[1], 'p2', T.p2)}${pod(r[0], 'p1', T.p1)}${pod(r[2], 'p3', T.p3)}</div>
+    <p class="drum" data-from="${T.drum}" data-until="${T.p1}" ${el >= T.drum && el < T.p1 ? '' : 'hidden'}>1位は……</p>
+    <div class="stack reveal-in" data-at="${T.rest}" ${el >= T.rest ? '' : 'hidden'}>
+      <p class="pts center">あなたは ${myPos()}位</p>
+      ${rankHTML()}
+      ${finalButtonsHTML()}
+    </div>
   </div>`;
+}
+function teamFinalHTML(){
+  const el = finalElapsed(), T = FIN_TEAM;
+  const [a, b] = state.teams;
+  const done = el >= T.win;
+  const winner = a.score === b.score ? null : (a.score > b.score ? a : b);
+  const head = winner ? `${esc(winner.name)}の勝ち！` : '引き分け！';
+  const mine = me().team && winner ? (me().team === winner.id ? 'あなたのチームの勝ちです！' : 'あなたのチームは負けてしまいました') : '';
+  const bars = state.teams.map((t) => `<div class="tcol ${t.id}${done && winner && winner.id === t.id ? ' win' : ''}">
+      <span class="num" id="tnum-${t.id}">0</span>
+      <div class="track"><div class="fill" id="tfill-${t.id}"></div></div>
+      <span class="tname">${esc(t.name)}${me().team === t.id ? '<small>（あなた）</small>' : ''}</span>
+    </div>`).join('');
+  return `<div class="stack final">
+    <div class="marquee"><h1>結果発表</h1></div>
+    <div class="tbars${done && winner ? ' decided' : ''}" id="tbars">${bars}</div>
+    <p class="banner tmsg" id="tmsg">${done ? head : el >= T.riseEnd ? 'どっちだ…!?' : '集計中…'}</p>
+    <p class="center muted" id="tmine" ${done && mine ? '' : 'hidden'}>${mine}</p>
+    <div class="stack reveal-in" data-at="${T.rest}" ${el >= T.rest ? '' : 'hidden'}>
+      ${teamsHTML({scores:true})}
+      <h3>個人の成績</h3>
+      <p class="pts center">あなたは ${myPos()}位</p>
+      ${rankHTML()}
+      ${finalButtonsHTML()}
+    </div>
+  </div>`;
+}
+// チーム戦の棒グラフの高さ（0〜1）と表示する点数
+function teamBarValue(t, el){
+  const T = FIN_TEAM;
+  const scores = state.teams.map((x) => x.score);
+  const max = Math.max(1, ...scores), low = Math.min(...scores);
+  const ease = (x) => 1 - Math.pow(1 - Math.min(1, Math.max(0, x)), 3);
+  let v;
+  if(el < T.rise) v = 0;
+  else if(el < T.riseEnd){
+    // 両チームいっしょに伸びる。少しずつ抜きつ抜かれつ
+    const k = (el - T.rise) / (T.riseEnd - T.rise);
+    const sway = Math.sin(k * Math.PI * 5 + (t.id === 'red' ? 0 : Math.PI)) * max * 0.04 * (1 - k);
+    v = Math.max(0, low * ease(k) + sway);
+  }
+  else if(el < T.hold) v = low;                      // 同じ高さで止まる
+  else if(el < T.win) v = low + (t.score - low) * ease((el - T.hold) / (T.win - T.hold));
+  else v = t.score;
+  return { h: v / max, n: Math.round(v) };
+}
+function animateFinal(){
+  finalRAF = 0;
+  if(!state || state.phase !== 'final') return;
+  const el = finalElapsed();
+  document.querySelectorAll('.final [data-at]').forEach((n) => {
+    const on = el >= +n.dataset.at;
+    if(n.classList.contains('pod')){
+      if(on && !n.classList.contains('shown')){
+        n.classList.add('shown');
+        n.querySelector('.nm').textContent = n.dataset.name;
+        n.querySelector('.sc').textContent = n.dataset.score;
+      }
+    } else if(n.hidden === on) n.hidden = !on;
+  });
+  const drum = document.querySelector('.final .drum');
+  if(drum) drum.hidden = !(el >= +drum.dataset.from && el < +drum.dataset.until);
+  if(isTeam()){
+    const T = FIN_TEAM;
+    for(const t of state.teams){
+      const { h, n } = teamBarValue(t, el);
+      const f = document.getElementById('tfill-' + t.id), num = document.getElementById('tnum-' + t.id);
+      if(f) f.style.height = (h * 100) + '%';
+      if(num) num.textContent = n;
+    }
+    const msg = document.getElementById('tmsg');
+    const bars = document.getElementById('tbars');
+    if(msg){
+      const [a, b] = state.teams;
+      const winner = a.score === b.score ? null : (a.score > b.score ? a : b);
+      const text = el >= T.win ? (winner ? `${winner.name}の勝ち！` : '引き分け！') : el >= T.riseEnd ? 'どっちだ…!?' : '集計中…';
+      if(msg.textContent !== text){ msg.textContent = text; msg.classList.toggle('shake', el >= T.riseEnd && el < T.win); }
+      const mine = document.getElementById('tmine'); if(mine && el >= T.win && mine.textContent) mine.hidden = false;
+      if(bars && el >= T.win && winner && !bars.classList.contains('decided')){
+        bars.classList.add('decided');
+        const w = bars.querySelector('.tcol.' + winner.id); if(w) w.classList.add('win');
+      }
+      if(bars) bars.classList.toggle('hold', el >= T.riseEnd && el < T.win);
+    }
+  }
+  if(el >= (isTeam() ? FIN_TEAM.win : FIN_SOLO.p1) && !document.querySelector('.confetti') && el < (isTeam() ? FIN_TEAM.win : FIN_SOLO.p1) + 4000) confetti();
+  const end = isTeam() ? FIN_TEAM.rest : FIN_SOLO.rest;
+  if(el < end + 200) finalRAF = requestAnimationFrame(animateFinal);
+}
+function confetti(){
+  if(reducedMotion) return;
+  const box = document.createElement('div'); box.className = 'confetti'; box.setAttribute('aria-hidden', 'true');
+  const colors = ['var(--a1)', 'var(--a2)', 'var(--a3)', 'var(--a4)', 'var(--hi)'];
+  for(let i = 0; i < 60; i++){
+    const p = document.createElement('i');
+    p.style.left = Math.random() * 100 + '%';
+    p.style.background = colors[i % colors.length];
+    p.style.animationDelay = (Math.random() * 0.8) + 's';
+    p.style.animationDuration = (2.2 + Math.random() * 1.6) + 's';
+    p.style.transform = `rotate(${Math.random() * 360}deg)`;
+    box.appendChild(p);
+  }
+  document.body.appendChild(box);
+  setTimeout(() => box.remove(), 5000);
 }
 
 /* ---------- ticking ---------- */
