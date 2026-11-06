@@ -28,11 +28,15 @@ const GRACE_MS = 600;                // 通信の遅れを見込んだ受付の�
 const PING_MS = 20000;               // 接続を保つための空送信
 
 // NPC の強さ。accuracy = 正解する確率、speed = 制限時間のどのあたりで答えるか（0=すぐ、1=ぎりぎり）
+// typeMs = タイピングで1文字打つのにかかる時間
 const BOT_LEVELS = {
-  easy:   { label: 'よわい', accuracy: 0.4,  speed: [0.45, 0.9] },
-  normal: { label: 'ふつう', accuracy: 0.65, speed: [0.25, 0.7] },
-  hard:   { label: 'つよい', accuracy: 0.9,  speed: [0.08, 0.4] },
+  easy:   { label: 'よわい', accuracy: 0.4,  speed: [0.45, 0.9], typeMs: 550 },
+  normal: { label: 'ふつう', accuracy: 0.65, speed: [0.25, 0.7], typeMs: 400 },
+  hard:   { label: 'つよい', accuracy: 0.9,  speed: [0.08, 0.4], typeMs: 300 },
 };
+// 早押しとタイピングでは NPC を少し弱く・遅くする
+const BOT_BUZZ = { accuracy: 0.75, slower: 0.2 };      // 正解率を0.75倍、答えるタイミングを制限時間の2割ぶん遅く
+const BOT_TYPING = { accuracy: 0.8, thinkMs: 1500 };   // 正解率を0.8倍、打ちはじめるまで1.5秒＋1文字ごとの時間
 const BOT_NAMES = ['ロボ太', 'ピコ', 'クイズ博士', 'ポン吉', 'ミケ', 'ガリ勉くん', 'ひらめき姫', 'うっかり侍', 'もぐら先生', 'チャチャ', 'ドット', 'ハカセ2号'];
 
 const TEAMS = [
@@ -489,11 +493,27 @@ function scheduleBots(room) {
   for (const p of room.players.values()) {
     if (!p.bot) continue;
     const lv = BOT_LEVELS[p.level];
-    const [lo, hi] = lv.speed;
-    const delay = Math.round(limit * (lo + Math.random() * (hi - lo)));
-    const right = Math.random() < lv.accuracy;
+    let [lo, hi] = lv.speed;
+    let accuracy = lv.accuracy;
+    if (buzzMode(room)) {
+      accuracy *= BOT_BUZZ.accuracy;
+      lo = Math.min(0.9, lo + BOT_BUZZ.slower);
+      hi = Math.min(0.95, hi + BOT_BUZZ.slower);
+    }
+    if (q.typing) accuracy *= BOT_TYPING.accuracy;
+    const right = Math.random() < accuracy;
     const wrong = [0, 1, 2, 3].filter((i) => i !== q.a);
     const c = right ? q.a : pick(wrong);
+    let delay;
+    if (q.typing) {
+      // 文字を打つ時間をとってから、残りの時間の中で答える（長い答えで間に合わなければ答えない）
+      const typeTime = BOT_TYPING.thinkMs + q.c[c].length * lv.typeMs;
+      const room_ = limit - 300 - typeTime;
+      if (room_ <= 0) continue;
+      delay = Math.round(typeTime + room_ * (lo + Math.random() * (hi - lo)));
+    } else {
+      delay = Math.round(limit * (lo + Math.random() * (hi - lo)));
+    }
     // タイピングの問題では、選んだ選択肢の言葉を「入力」する
     const input = q.typing ? { text: q.c[c] } : { c };
     room.botTimers.push(setTimeout(() => {
