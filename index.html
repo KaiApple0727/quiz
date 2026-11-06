@@ -165,6 +165,59 @@ button.ans:active:not(:disabled){transform:translateY(3px) scale(.97)}
 .bubble.mine{background:var(--hi);color:var(--on-hi)}
 @keyframes floatup{0%{transform:translateY(20px) scale(.6);opacity:0}15%{transform:translateY(0) scale(1.05);opacity:1}100%{transform:translateY(-55vh) scale(1);opacity:0}}
 
+/* avatars & social */
+.av{display:inline-grid;place-items:center;flex:none;width:24px;height:24px;border-radius:50%;font-size:14px;line-height:1;margin-right:6px;vertical-align:middle;background:var(--avc)}
+.av.big{width:44px;height:44px;font-size:26px;margin:0}
+.av.blank{background:var(--line);color:var(--muted);font-family:var(--display);font-size:20px}
+.c0{--avc:#FAD4D2} .c1{--avc:#D3E2FB} .c2{--avc:#FDE7BF} .c3{--avc:#CDEEDC} .c4{--avc:#E3D7F6} .c5{--avc:#F9D6E8} .c6{--avc:#CDEDF1} .c7{--avc:#E4E1EA}
+@media (prefers-color-scheme: dark){ .c0{--avc:#5A2E33} .c1{--avc:#25395E} .c2{--avc:#5A4420} .c3{--avc:#1F4A35} .c4{--avc:#3E3060} .c5{--avc:#5A2D46} .c6{--avc:#1F4B52} .c7{--avc:#3A3746} }
+.chip{display:inline-flex;align-items:center;gap:2px}
+.chip .av{margin-right:4px;width:22px;height:22px;font-size:13px}
+.chip .cn{overflow:hidden;text-overflow:ellipsis}
+.watchers{display:flex;flex-direction:column;gap:6px}
+.watchers .chip{opacity:.75}
+.mechip .av{width:22px;height:22px;font-size:13px;margin-right:2px}
+.mechip .watch{flex:none;font-size:.65rem;padding:0 5px;border-radius:5px;background:var(--line);color:var(--ink)}
+.namerow{display:flex;gap:8px;align-items:center}
+.namerow input{flex:1;min-width:0}
+.avbtn{flex:none;border:2px dashed var(--line);background:var(--surface);border-radius:50%;padding:4px;line-height:0}
+.avbtn[aria-expanded="true"]{border-color:var(--ink);border-style:solid}
+.picker{display:flex;flex-direction:column;gap:8px;padding:10px;border-radius:14px;background:var(--bg);border:1.5px solid var(--line)}
+.pick-av{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:4px}
+.pick-av button{border:2px solid transparent;background:none;border-radius:10px;font-size:22px;line-height:1;padding:4px 0}
+.pick-av button[aria-pressed="true"]{border-color:var(--ink);background:var(--surface)}
+.pick-col{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:6px}
+.pick-col button{aspect-ratio:1;max-width:100%;border-radius:50%;border:2px solid var(--line);background:var(--avc)}
+.pick-col button[aria-pressed="true"]{border-color:var(--ink);box-shadow:0 0 0 2px var(--surface) inset}
+.check{display:flex;align-items:center;gap:8px;font-size:.88rem;color:var(--muted)}
+.check input{width:18px;height:18px;accent-color:var(--ink)}
+.selfrow{gap:8px}
+.selfrow .btn .av{margin-right:2px}
+.podium .pod{gap:4px}
+.bubble small{display:flex;align-items:center;gap:2px}
+.bubble .av{width:18px;height:18px;font-size:11px;margin-right:2px}
+#chatbtn{position:fixed;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(96px + env(safe-area-inset-bottom,0px));z-index:16;width:52px;height:52px;border-radius:50%;border:2px solid var(--ink);background:var(--surface);color:var(--ink);display:grid;place-items:center;box-shadow:0 4px 0 rgba(0,0,0,.12)}
+#chatbtn .badge{position:absolute;top:-6px;right:-6px;min-width:22px;height:22px;padding:0 6px;border-radius:99px;background:var(--bad);color:#fff;font-size:.75rem;font-weight:700;display:grid;place-items:center}
+.chatin{position:relative;flex:none;width:48px;height:48px;border-radius:14px;border:2px solid var(--line);background:var(--surface);color:var(--ink);display:grid;place-items:center}
+.chatin .badge{position:absolute;top:-6px;right:-6px;min-width:20px;height:20px;padding:0 5px;border-radius:99px;background:var(--bad);color:#fff;font-size:.72rem;font-weight:700;display:grid;place-items:center}
+#chatpeek{position:fixed;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(96px + env(safe-area-inset-bottom,0px));z-index:16;max-width:min(320px,calc(100% - 32px));display:flex;align-items:center;gap:6px;padding:8px 12px;border-radius:14px;background:var(--ink);color:var(--bg);font-size:.88rem;animation:fadeup .3s ease-out}
+#chatpeek span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#chatsheet{position:fixed;left:0;right:0;bottom:0;z-index:40;height:min(62vh,520px);display:flex;flex-direction:column;background:var(--surface);border-top:2px solid var(--ink);border-radius:18px 18px 0 0;box-shadow:0 -10px 30px rgba(0,0,0,.18);padding:12px max(16px,env(safe-area-inset-right,0px)) calc(12px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));animation:sheetup .25s ease-out}
+@keyframes sheetup{from{transform:translateY(40px);opacity:0}to{transform:none;opacity:1}}
+.ch-head{display:flex;align-items:center;justify-content:space-between;max-width:860px;width:100%;margin:0 auto}
+.ch-head h2{font-size:1.05rem}
+.ch-list{list-style:none;margin:8px auto;padding:0;flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:8px;max-width:860px;width:100%}
+.ch-list li{display:flex;align-items:flex-start;gap:4px;min-width:0}
+.ch-list li div{min-width:0}
+.ch-list small{color:var(--muted);font-size:.72rem}
+.ch-list p{margin:0;padding:6px 10px;border-radius:12px;background:var(--bg);overflow-wrap:anywhere}
+.ch-list li.mine{flex-direction:row-reverse}
+.ch-list li.mine div{text-align:right}
+.ch-list li.mine p{background:var(--hi);color:var(--on-hi)}
+.ch-list li.empty{color:var(--muted);justify-content:center}
+.ch-form{display:flex;gap:8px;max-width:860px;width:100%;margin:0 auto}
+.ch-form input{flex:1;min-width:0;font-size:1rem;padding:10px 12px}
+
 /* hidden scores & final */
 .secret{display:flex;flex-direction:column;align-items:center;gap:4px;padding:18px;border-radius:16px;border:2px dashed var(--line);background:var(--surface);text-align:center}
 .secret b{font-family:var(--display);font-weight:400;font-size:1.8rem;letter-spacing:.2em}
@@ -421,6 +474,19 @@ button.ans:active:not(:disabled){transform:translateY(3px) scale(.97)}
 </div>
 <div id="toast" hidden></div>
 <div id="netbar" role="status" hidden></div>
+<button type="button" id="chatbtn" data-act="chatOpen" aria-label="チャットを開く" hidden>
+  <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+  <span class="badge" id="chatbadge" hidden></span>
+</button>
+<div id="chatpeek" hidden></div>
+<section id="chatsheet" aria-label="チャット" hidden>
+  <div class="ch-head"><h2>チャット</h2><button type="button" class="hbtn" data-act="chatClose">閉じる</button></div>
+  <ol class="ch-list" id="chatlist"></ol>
+  <form class="ch-form" id="chatform" autocomplete="off">
+    <input type="text" id="chatinput" maxlength="60" placeholder="メッセージ（60文字まで）" aria-label="メッセージ">
+    <button class="btn hi" type="submit">送信</button>
+  </form>
+</section>
 
 <script>
 (function(){
@@ -572,6 +638,56 @@ function updateRankDelta(){
   if(lastRanks) for(const id in now) if(lastRanks[id]) rankDelta[id] = lastRanks[id] - now[id];
   lastRanks = now;
 }
+// ひとことチャット
+let chatOpen = false, chatSeen = 0, chatLastId = null, peekTimer = null;
+try{ chatSeen = +(sessionStorage.getItem('quiz.chatSeen') || 0); }catch(e){}
+function renderChat(){
+  const btn = $('#chatbtn'), sheet = $('#chatsheet');
+  const on = !!(session && state);
+  // 下のバーがあるときはバーの中のボタンを使う。出題中はボタンを出さない
+  btn.hidden = !on || chatOpen || !!document.querySelector('.actionbar') || state.phase === 'question';
+  sheet.hidden = !on || !chatOpen;
+  if(!on) return;
+  const list = state.chat || [];
+  const unread = list.filter((m) => m.t > chatSeen && m.id !== state.me.id).length;
+  document.querySelectorAll('#chatbadge, .chatbadge').forEach((badge) => { badge.hidden = !unread || chatOpen; badge.textContent = unread > 9 ? '9+' : unread; });
+  const last = list[list.length - 1];
+  // 新しいメッセージを小さく表示
+  if(last && last.i !== chatLastId){
+    if(chatLastId !== null && !chatOpen && last.id !== state.me.id){
+      const pk = $('#chatpeek'); pk.innerHTML = `${av(last)}<span><b>${esc(last.name)}</b> ${esc(last.text)}</span>`; pk.hidden = false;
+      clearTimeout(peekTimer); peekTimer = setTimeout(() => { pk.hidden = true; }, 3500);
+      sfx.pop();
+    }
+    chatLastId = last.i;
+    if(chatOpen) markChatSeen();
+  }
+  if(chatLastId === null) chatLastId = last ? last.i : '';
+  if(chatOpen){
+    const ol = $('#chatlist');
+    const sig = (last ? last.i : '') + ':' + list.length;
+    if(ol.dataset.sig !== sig){
+      ol.innerHTML = list.length ? list.map((m) => `<li class="${m.id === state.me.id ? 'mine' : ''}">${av(m)}<div><small>${esc(m.name)}</small><p>${esc(m.text)}</p></div></li>`).join('') : '<li class="empty">まだメッセージはありません</li>';
+      ol.dataset.sig = sig; ol.scrollTop = ol.scrollHeight;
+    }
+    const inp = $('#chatinput'), q = state.phase === 'question';
+    inp.disabled = q; inp.placeholder = q ? '出題中は送信できません' : 'メッセージ（60文字まで）';
+    sheet.querySelector('button[type=submit]').disabled = q;
+  }
+}
+function markChatSeen(){
+  const list = (state && state.chat) || []; const last = list[list.length - 1];
+  if(last){ chatSeen = Math.max(chatSeen, last.t); try{ sessionStorage.setItem('quiz.chatSeen', String(chatSeen)); }catch(e){} }
+}
+document.addEventListener('submit', async (e) => {
+  if(e.target.id !== 'chatform') return;
+  e.preventDefault();
+  const inp = $('#chatinput'), text = inp.value.trim();
+  if(!text) return;
+  const r = await api('chat', {text});
+  if(r.ok){ inp.value = ''; sfx.send(); } else if(r.error) toast(r.error);
+});
+
 // リアクションスタンプ
 let lastReactAt = 0;
 function reactsHTML(){
@@ -584,7 +700,7 @@ function showReaction(d){
   const text = list[d.k]; if(!text) return;
   const b = document.createElement('div');
   b.className = 'bubble' + (d.team ? ' ' + d.team : '') + (state && state.me && d.id === state.me.id ? ' mine' : '');
-  b.innerHTML = `<small>${esc(d.name)}</small><b>${esc(text)}</b>`;
+  b.innerHTML = `<small>${av(d)} ${esc(d.name)}</small><b>${esc(text)}</b>`;
   b.style.left = (8 + Math.random() * 70) + '%';
   b.setAttribute('aria-hidden', 'true');
   document.body.appendChild(b);
@@ -668,6 +784,7 @@ async function resume(){
 }
 function saveSession(s){ session = s; store('quiz.session', s ? JSON.stringify(s) : null); }
 function leaveLocal(msg){
+  chatOpen = false; chatLastId = null; pickerOpen = false;
   saveSession(null); state = null; homeError = msg || '';
   lastSnap = null; try{ sessionStorage.removeItem('quiz.snap'); }catch(e){}
   history.replaceState(null, '', location.pathname);
@@ -719,17 +836,19 @@ function renderHeader(){
   const team = m.team && isTeam() && state.phase !== 'decided' ? m.team : '';
   const sure = Date.now() < leaveConfirmUntil;
   who.innerHTML =
-    `<span class="mechip${team ? ' t-' + team : ''}${online ? '' : ' off'}" title="${team ? esc(TEAM_NAME[team]) : ''}">${isHost() ? '<span class="crown" aria-label="ルーム主">主</span>' : ''}<span class="nm">${esc(m.name)}</span></span>` +
+    `<span class="mechip${team ? ' t-' + team : ''}${online ? '' : ' off'}" title="${team ? esc(TEAM_NAME[team]) : ''}">${av(state.players.find((p) => p.id === m.id))}${isHost() ? '<span class="crown" aria-label="ルーム主">主</span>' : ''}<span class="nm">${esc(m.name)}</span>${m.spectator ? '<span class="watch">観戦</span>' : ''}</span>` +
     muteButtonHTML(false) +
     `<button type="button" class="hbtn leave${sure ? ' sure' : ''}" data-act="leave">${sure ? '本当に退出' : '退出'}</button>`;
 }
 
 // 画面の下に固定するボタンの帯
 function actionbar(inner){
-  return `<div class="bar-spacer"></div><div class="actionbar"><div class="actionbar-in">${inner}</div></div>`;
+  const chat = `<button type="button" class="chatin" data-act="chatOpen" aria-label="チャットを開く"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span class="badge chatbadge" hidden></span></button>`;
+  return `<div class="bar-spacer"></div><div class="actionbar"><div class="actionbar-in">${chat}${inner}</div></div>`;
 }
 function render(){
   renderHeader();
+  queueMicrotask(renderChat);   // 画面を描いたあとにチャットのボタンを更新する
   const stage = $('#stage');
   if(!session){ stage.innerHTML = homeHTML(); bindHome(); return; }
   if(!state){ stage.innerHTML = `<div class="marquee"><p class="muted">接続中…</p></div>`; return; }
@@ -775,8 +894,12 @@ function homeHTML(){
     </div>
     <div class="panel home-card">
       <div class="field">
-        <label class="lbl" for="name">ニックネーム</label>
-        <input type="text" id="name" maxlength="12" placeholder="12文字まで" value="${esc(name)}" autocomplete="nickname">
+        <label class="lbl" for="name">ニックネームとアイコン</label>
+        <div class="namerow">
+          <button type="button" class="avbtn" data-act="togglePicker" aria-expanded="${pickerOpen}" aria-label="アイコンを変更">${av({avatar: myAvatar, color: myColor}, true)}</button>
+          <input type="text" id="name" maxlength="12" placeholder="12文字まで" value="${esc(name)}" autocomplete="nickname">
+        </div>
+        ${pickerOpen ? avatarPickerHTML() : ''}
       </div>
       <form class="field" id="join-form">
         <label class="lbl" for="code">ルーム番号で参加</label>
@@ -784,6 +907,7 @@ function homeHTML(){
           <input type="text" id="code" class="code" inputmode="numeric" maxlength="6" placeholder="0000" value="${esc(urlCode)}" autocomplete="off">
           <button class="btn hi" type="submit">参加</button>
         </div>
+        <label class="check"><input type="checkbox" id="watch"> 観戦で参加する（回答しない）</label>
       </form>
       <div class="or"><span>または</span></div>
       <form class="field" id="create-form">
@@ -833,29 +957,44 @@ function bindHome(){
     const name = getName(); if(!name) return;
     const code = codeEl.value.replace(/\D/g, '');
     if(code.length < 4){ err.textContent = 'ルーム番号（4桁）を入力してください。'; codeEl.focus(); return; }
-    const r = await post('join', {code, name});
+    const r = await post('join', {code, name, avatar: myAvatar, color: myColor, spectator: $('#watch').checked});
     if(!r.ok){ err.textContent = r.error || '参加できませんでした。'; return; }
-    homeError = ''; saveSession({code:r.code, token:r.token}); connect(); render();
+    homeError = ''; pickerOpen = false; saveSession({code:r.code, token:r.token}); connect(); render();
   });
   $('#create-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const name = getName(); if(!name) return;
-    const r = await post('create', {name});
+    const r = await post('create', {name, avatar: myAvatar, color: myColor});
     if(!r.ok){ err.textContent = r.error || 'ルームを作成できませんでした。'; return; }
-    homeError = ''; saveSession({code:r.code, token:r.token}); connect(); render();
+    homeError = ''; pickerOpen = false; saveSession({code:r.code, token:r.token}); connect(); render();
   });
   if(new URLSearchParams(location.search).get('room') && !nameEl.value) nameEl.focus();
 }
 
 /* shared bits */
+// アイコン（動物）と背景色
+const AVATARS = ['🐱', '🐶', '🦊', '🐼', '🐸', '🐧', '🦉', '🐙', '🐯', '🐰', '🐻', '🐨', '🦁', '🐮', '🐵', '🐲'];
+const AV_COLORS = 8;
+let myAvatar = +(store('quiz.avatar') ?? NaN), myColor = +(store('quiz.color') ?? NaN);
+if(!(myAvatar >= 0 && myAvatar < AVATARS.length)){ myAvatar = Math.floor(Math.random() * AVATARS.length); store('quiz.avatar', String(myAvatar)); }
+if(!(myColor >= 0 && myColor < AV_COLORS)){ myColor = Math.floor(Math.random() * AV_COLORS); store('quiz.color', String(myColor)); }
+const av = (p, big) => `<span class="av c${(p && p.color) || 0}${big ? ' big' : ''}" aria-hidden="true">${AVATARS[(p && p.avatar) || 0] || ''}</span>`;
+let pickerOpen = false;
+function avatarPickerHTML(){
+  return `<div class="picker" role="group" aria-label="アイコンを選ぶ">
+    <div class="pick-av">${AVATARS.map((a, i) => `<button type="button" data-act="pickAv" data-v="${i}" aria-pressed="${myAvatar === i}" aria-label="アイコン${i + 1}">${a}</button>`).join('')}</div>
+    <div class="pick-col">${Array.from({length: AV_COLORS}, (_, i) => `<button type="button" class="c${i}" data-act="pickCol" data-v="${i}" aria-pressed="${myColor === i}" aria-label="色${i + 1}"></button>`).join('')}</div>
+  </div>`;
+}
 const npcTag = (p) => p.bot ? ` <span class="npc">NPC・${esc(p.level)}</span>` : '';
 const teamDot = (p) => p.team && isTeam() ? `<span class="tdot ${p.team}" aria-label="${TEAM_NAME[p.team]}"></span>` : '';
 function chipsHTML(){
   const canRemove = isHost() && (state.phase === 'lobby' || state.phase === 'final');
-  return '<div class="chips">' + state.players.map((p) =>
-    `<span class="chip${p.id === me().id ? ' me' : ''}${p.connected ? '' : ' off'}${p.bot ? ' bot' : ''}">${esc(p.name)}${p.isHost ? '<span class="crown">ルーム主</span>' : ''}${npcTag(p)}` +
-    (p.bot && canRemove ? `<button class="x" data-act="removeBot" data-v="${esc(p.id)}" aria-label="${esc(p.name)}を外す">×</button>` : '') + `</span>`
-  ).join('') + '</div>';
+  const chip = (p) => `<span class="chip${p.id === me().id ? ' me' : ''}${p.connected ? '' : ' off'}${p.bot ? ' bot' : ''}">${av(p)}<span class="cn">${esc(p.name)}</span>${p.isHost ? '<span class="crown">ルーム主</span>' : ''}${npcTag(p)}` +
+    (p.bot && canRemove ? `<button class="x" data-act="removeBot" data-v="${esc(p.id)}" aria-label="${esc(p.name)}を外す">×</button>` : '') + `</span>`;
+  const players = state.players.filter((p) => !p.spectator), watchers = state.players.filter((p) => p.spectator);
+  return '<div class="chips">' + players.map(chip).join('') + '</div>' +
+    (watchers.length ? `<div class="watchers"><span class="lbl">観戦</span><div class="chips">${watchers.map(chip).join('')}</div></div>` : '');
 }
 function joinUrl(){ return location.origin + location.pathname + '?room=' + state.code; }
 function npcHTML(){
@@ -901,16 +1040,26 @@ function tagsHTML(){
 /* lobby */
 function lobbyHTML(){
   const host = isHost();
-  const humansN = state.players.filter((p) => !p.bot).length, botsN = state.players.length - humansN;
+  const humansN = state.players.filter((p) => !p.bot && !p.spectator).length, botsN = state.players.filter((p) => p.bot).length;
   return `<div class="stack">
     <div class="code-card">
       <span class="lbl">ルーム番号</span>
       <div class="big-code">${esc(state.code)}</div>
-      <button class="btn small ghost" data-act="copy">招待リンクをコピー</button>
+      <div class="row" style="justify-content:center">
+        ${navigator.share ? '<button class="btn small" data-act="share">招待を送る</button>' : ''}
+        <button class="btn small ghost" data-act="copy">リンクをコピー</button>
+      </div>
     </div>
     <section class="card">
       <div class="card-h"><h2>参加者</h2><span class="muted">${humansN}人${botsN ? `＋NPC ${botsN}人` : ''}</span></div>
       ${chipsHTML()}
+      <div class="row selfrow">
+        <button type="button" class="btn small ghost" data-act="togglePicker" aria-expanded="${pickerOpen}">${av({avatar: myAvatar, color: myColor})} アイコンを変更</button>
+        ${host ? '' : (isSpectator()
+          ? '<button type="button" class="btn small ghost" data-act="spectate" data-v="0">プレイヤーとして参加</button>'
+          : '<button type="button" class="btn small ghost" data-act="spectate" data-v="1">観戦にする</button>')}
+      </div>
+      ${pickerOpen ? avatarPickerHTML() : ''}
       ${host ? npcHTML() : ''}
     </section>
     <section class="card">
@@ -941,6 +1090,11 @@ function voteHTML(){
     </div>`;
   }).join('');
   const people = v.people.map((p) => `<span class="dotname${p.ready ? ' ready' : ''}${p.id === me().id ? ' me' : ''}">${p.ready ? '✓' : ''}${esc(p.name)}</span>`).join('');
+  if(isSpectator()) return `<div class="stack">
+    <div><h2 class="title">投票でルールを決定</h2><p class="hint">観戦中のため投票できません。数字は現在の票数です。</p></div>
+    ${secs.replace(/<button type="button" class="vopt"/g, '<button type="button" disabled class="vopt"')}
+    ${actionbar(`<div class="readyinfo"><span class="lbl">準備OK <span class="count">${v.readyCount}/${v.voters}</span></span><div class="dotnames">${people}</div></div>`)}
+  </div>`;
   const readyBtn = v.myReady
     ? `<button class="btn ghost" data-act="ready" data-v="0">取り消す</button>`
     : `<button class="btn hi" data-act="ready" data-v="1" ${allMine ? '' : 'disabled'}>準備OK</button>`;
@@ -1108,15 +1262,16 @@ function questionHTML(){
     ${qHead()}
     <div class="bar"><i id="tbar" style="width:${100 * remainingMs() / (q.time * 1000)}%"></i></div>
     <div class="qtext">${esc(q.text)}</div>
-    ${q.typing ? typingHTML(locked) : answersHTML({buttons:true, picked: myPicked(), disabled: locked})}
+    ${isSpectator() ? `${q.typing ? '' : answersHTML({})}<p class="hint center">観戦中</p>` : (q.typing ? typingHTML(locked) : answersHTML({buttons:true, picked: myPicked(), disabled: locked}))}
     <div id="q-status">${questionStatus()}</div>
     <div class="meter" id="q-meter">${questionMeter()}</div>
   </div>`;
 }
 
 /* reveal */
+const isSpectator = () => !!(state && state.me && state.me.spectator);
 function ranking(){
-  return state.players.slice().sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+  return state.players.filter((p) => !p.spectator).sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
 }
 function hiddenNote(){
   return `<div class="secret"><b>？？？</b><span>終盤のため、順位と合計点は非表示です。<br>結果発表でお知らせします。</span></div>`;
@@ -1129,7 +1284,7 @@ function rankHTML(limit){
     const dlt = state.phase === 'reveal' ? (rankDelta[x.id] || 0) : 0;
     const arrow = dlt > 0 ? `<span class="mv up">↑${dlt}</span>` : dlt < 0 ? `<span class="mv down">↓${-dlt}</span>` : '';
     const fire = state.phase === 'reveal' && x.streak >= 3 ? `<span class="fire">${x.streak}連続</span>` : '';
-    return `<li class="${x.id === me().id ? 'me' : ''}${dlt > 0 ? ' rise' : ''}"><span class="pos">${pos}</span><span class="nm">${teamDot(x)}${esc(x.name)}${npcTag(x)}${fire}${arrow}</span><span class="gain">${x.gain && state.phase !== 'final' ? '+' + x.gain : ''}</span><span class="sc">${x.score}</span></li>`;
+    return `<li class="${x.id === me().id ? 'me' : ''}${dlt > 0 ? ' rise' : ''}"><span class="pos">${pos}</span><span class="nm">${av(x)}${teamDot(x)}${esc(x.name)}${npcTag(x)}${fire}${arrow}</span><span class="gain">${x.gain && state.phase !== 'final' ? '+' + x.gain : ''}</span><span class="sc">${x.score}</span></li>`;
   };
   const top = limit ? r.slice(0, limit) : r;
   const meRow = limit && !top.some((x) => x.id === me().id) ? r.find((x) => x.id === me().id) : null;
@@ -1166,11 +1321,12 @@ function revealHTML(){
     ? `<div class="truth"><small>正解</small><b>${esc(rv.correctText)}</b></div>
        <ul class="typed">${rv.typed.length ? rv.typed.map((t) => {
          const pl = state.players.find((p) => p.id === t.id) || {};
-         return `<li class="${t.correct ? 'ok' : 'ng'}${t.id === me().id ? ' me' : ''}"><span class="mk">${t.correct ? '○' : '×'}</span><span class="nm">${teamDot(pl)}${esc(t.name)}</span><span class="tx">${esc(t.text)}</span><span class="sec">${t.sec}秒</span></li>`;
+         return `<li class="${t.correct ? 'ok' : 'ng'}${t.id === me().id ? ' me' : ''}"><span class="mk">${t.correct ? '○' : '×'}</span><span class="nm">${av(pl)}${esc(t.name)}</span><span class="tx">${esc(t.text)}</span><span class="sec">${t.sec}秒</span></li>`;
        }).join('') : '<li class="empty muted">回答者はいませんでした</li>'}</ul>`
     : revealAnswersHTML(rv, picked);
   let verdict, cls;
-  if(isBuzz()){
+  if(isSpectator()){ verdict = '答え合わせ'; cls = 'none'; }
+  else if(isBuzz()){
     const w = rv.winner;
     if(w && w.id === me().id){ verdict = '早押し正解！'; cls = 'ok'; }
     else if(picked != null && !rv.myCorrect){ verdict = 'お手つき'; cls = 'ng'; }
@@ -1188,7 +1344,7 @@ function revealHTML(){
       ${rv.myGain ? `<div class="pts" id="gainpts" data-to="${rv.myGain}" data-key="${esc(state.code)}:${q.index}">+${rv.myGain}</div>` : ''}
       ${rv.myCorrect && rv.myStreak >= 2 ? `<div class="combo"><span>${rv.myStreak}連続正解！</span><b>ボーナス +${rv.myBonus}</b></div>` : ''}
       ${sub}
-      <p class="hint">${state.hidden ? '合計点と順位は結果発表まで非表示' : `合計 ${mine.score}点 ・ いま ${myPos()}位`}</p>
+      ${isSpectator() ? '' : `<p class="hint">${state.hidden ? '合計点と順位は結果発表まで非表示' : `合計 ${mine.score}点 ・ いま ${myPos()}位`}</p>`}
     </div>
     <p class="qtext small">${esc(q.text)}</p>
     ${answerBlock}
@@ -1222,8 +1378,8 @@ function soloFinalHTML(){
   const pod = (x, cls, at) => {
     if(!x) return `<div class="pod ${cls}"></div>`;
     const shown = el >= at;
-    return `<div class="pod ${cls}${shown ? ' shown' : ''}" data-at="${at}" data-name="${esc(x.name)}" data-score="${x.score}点">
-      <span class="nm">${shown ? esc(x.name) : '？？？'}</span><span class="sc">${shown ? x.score + '点' : '&nbsp;'}</span>
+    return `<div class="pod ${cls}${shown ? ' shown' : ''}" data-at="${at}" data-name="${esc(x.name)}" data-score="${x.score}点" data-av="${esc(AVATARS[x.avatar || 0])}" data-col="${x.color || 0}">
+      ${shown ? av(x, true) : '<span class="av big blank" aria-hidden="true">？</span>'}<span class="nm">${shown ? esc(x.name) : '？？？'}</span><span class="sc">${shown ? x.score + '点' : '&nbsp;'}</span>
       <div class="blk">${rankNumber(x)}</div></div>`;
   };
   return `<div class="stack final">
@@ -1231,7 +1387,7 @@ function soloFinalHTML(){
     <div class="podium">${pod(r[1], 'p2', T.p2)}${pod(r[0], 'p1', T.p1)}${pod(r[2], 'p3', T.p3)}</div>
     <p class="drum" data-from="${T.drum}" data-until="${T.p1}" ${el >= T.drum && el < T.p1 ? '' : 'hidden'}>1位は……</p>
     <div class="stack reveal-in" data-at="${T.rest}" ${el >= T.rest ? '' : 'hidden'}>
-      <p class="pts center">あなたは ${myPos()}位</p>
+      ${isSpectator() ? '' : `<p class="pts center">あなたは ${myPos()}位</p>`}
       ${reactsHTML()}
       ${rankHTML()}
       ${finalButtonsHTML()}
@@ -1257,7 +1413,7 @@ function teamFinalHTML(){
     <p class="center muted" id="tmine" ${done && mine ? '' : 'hidden'}>${mine}</p>
     <div class="stack reveal-in" data-at="${T.rest}" ${el >= T.rest ? '' : 'hidden'}>
       <h3>個人の成績</h3>
-      <p class="pts center">あなたは ${myPos()}位</p>
+      ${isSpectator() ? '' : `<p class="pts center">あなたは ${myPos()}位</p>`}
       ${reactsHTML()}
       ${rankHTML()}
       ${finalButtonsHTML()}
@@ -1301,6 +1457,7 @@ function animateFinal(){
       if(on && !n.classList.contains('shown')){
         n.classList.add('shown');
         n.querySelector('.nm').textContent = n.dataset.name;
+        const a = n.querySelector('.av'); if(a){ a.className = 'av big c' + n.dataset.col; a.textContent = n.dataset.av; }
         n.querySelector('.sc').textContent = n.dataset.score;
       }
     } else if(n.hidden === on) n.hidden = !on;
@@ -1409,6 +1566,22 @@ document.addEventListener('click', async (e) => {
       break;
     }
     case 'mute': sfx.toggle(); renderHeader(); break;
+    case 'togglePicker': { const nm = $('#name'); const keep = nm ? nm.value : null; pickerOpen = !pickerOpen; render(); if(keep != null && $('#name')) $('#name').value = keep; break; }
+    case 'pickAv': case 'pickCol': {
+      if(act === 'pickAv'){ myAvatar = +v; store('quiz.avatar', v); } else { myColor = +v; store('quiz.color', v); }
+      if(session && state) api('profile', {avatar: myAvatar, color: myColor});
+      // トップ画面では入力中の名前を消さないように
+      const nm = $('#name'); const keep = nm ? nm.value : null;
+      render(); if(keep != null && $('#name')) $('#name').value = keep;
+      break;
+    }
+    case 'spectate': { const r = await api('spectate', {on: v === '1'}); if(!r.ok && r.error) toast(r.error); break; }
+    case 'share': {
+      try{ await navigator.share({title: 'みんなのクイズ大会', text: `クイズ大会に参加しよう（ルーム番号 ${state.code}）`, url: joinUrl()}); }catch(e){}
+      break;
+    }
+    case 'chatOpen': chatOpen = true; markChatSeen(); $('#chatpeek').hidden = true; $('#chatlist').dataset.sig = ''; renderChat(); setTimeout(() => { const i = $('#chatinput'); if(i && !i.disabled) i.focus(); }, 50); break;
+    case 'chatClose': chatOpen = false; markChatSeen(); renderChat(); break;
     case 'react': {
       if(Date.now() - lastReactAt < 700) return;
       lastReactAt = Date.now();

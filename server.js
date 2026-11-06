@@ -30,6 +30,12 @@ const BUZZ_POINTS = 1000;            // 早押しで正解したときの得点
 const streakBonus = (streak) => (streak >= 2 ? Math.min(streak - 1, 5) * 50 : 0);
 const REACTIONS = ['すごい！', '惜しい！', 'ドンマイ', 'ナイス！', 'えっ!?', '速い！'];
 const REACTION_GAP_MS = 700;         // スタンプの連打防止
+const AVATARS = ['🐱', '🐶', '🦊', '🐼', '🐸', '🐧', '🦉', '🐙', '🐯', '🐰', '🐻', '🐨', '🦁', '🐮', '🐵', '🐲'];
+const COLORS = 8;                    // アイコンの背景色の数（色そのものは画面側で決める）
+const CHAT_MAX = 60;                 // チャット1件の最大文字数
+const CHAT_KEEP = 40;                // ルームに残しておくチャットの件数
+const CHAT_GAP_MS = 1000;            // チャットの連投防止
+const clampInt = (v, max, def) => (Number.isInteger(+v) && +v >= 0 && +v < max ? +v : def);
 const HOST_HANDOVER_MS = 15000;      // ルーム主が切断したまま戻らないとき、次の人に交代するまでの時間
 const ROOM_IDLE_MS = 15 * 60 * 1000; // 誰もいないルームを消すまでの時間
 const GRACE_MS = 600;                // 通信の遅れを見込んだ受付の猶予
@@ -160,9 +166,11 @@ function uniqueName(room, name, selfId) {
   return name;
 }
 const isConnected = (p) => p.bot || p.streams.size > 0;
-const connectedPlayers = (room) => [...room.players.values()].filter(isConnected);
+// 観戦の人は、回答・投票・チーム・順位に入らない
+const connectedPlayers = (room) => [...room.players.values()].filter((p) => isConnected(p) && !p.spectator);
 const humans = (room) => [...room.players.values()].filter((p) => !p.bot);
 const onlineHumans = (room) => humans(room).filter(isConnected);
+const voters = (room) => onlineHumans(room).filter((p) => !p.spectator);
 const inGame = (room) => room.phase === 'decided' || room.phase === 'question' || room.phase === 'reveal' || room.phase === 'final';
 const teamMode = (room) => room.config && room.config.format === 'team';
 const buzzMode = (room) => room.config && room.config.mode === 'buzz';
@@ -204,7 +212,7 @@ function startVote(room) {
 // 全員が「準備OK」を押したら締め切る（制限時間はなし。ルーム主は途中で締め切れる）
 function maybeCloseVote(room) {
   if (room.phase !== 'vote') return;
-  const live = onlineHumans(room);
+  const live = voters(room);
   clearTimeout(room.timer);
   if (live.length && live.every((p) => room.ready.has(p.id))) {
     room.timer = setTimeout(() => closeVote(room), 800);
@@ -283,13 +291,15 @@ function viewFor(room, player) {
   const hidden = scoresHidden(room);
   const v = {
     code: room.code,
-    me: { id: player.id, name: player.name, isHost: room.hostId === player.id, team: player.team || null },
+    me: { id: player.id, name: player.name, isHost: room.hostId === player.id, team: player.team || null, spectator: !!player.spectator },
     phase: room.phase,
     version: VERSION,
     snap: room.snap || (room.snap = sealSnapshot(snapshotOf(room))),
     settings: room.settings,
     choices: { counts: COUNTS, times: TIMES },
     reactions: REACTIONS,
+    avatars: AVATARS,
+    chat: (room.chat || []).slice(-30),
     players: [...room.players.values()].map((p) => ({
       id: p.id,
       name: p.name,
@@ -302,6 +312,9 @@ function viewFor(room, player) {
       level: p.bot ? BOT_LEVELS[p.level].label : undefined,
       team: p.team || null,
       account: !!p.userId,
+      avatar: p.avatar || 0,
+      color: p.color || 0,
+      spectator: !!p.spectator,
       streak: hidden && p.id !== player.id ? 0 : (p.streak || 0),
       answered: room.phase === 'question' ? room.answers.has(p.id) : false,
     })),
@@ -326,7 +339,7 @@ function viewFor(room, player) {
     v.record = room.recorded || null;               // 成績を記録したか
   }
   if (room.phase === 'vote') {
-    const live = onlineHumans(room);
+    const live = voters(room);
     v.vote = {
       ballot: BALLOT.map((b) => ({ key: b.key, label: b.label, options: b.options })),
       tally: tally(room),
@@ -472,7 +485,7 @@ function advance(room) {
 // 結果発表になったら、ログインしている人の成績を記録する（人間が2人以上ならランキングにも数える）
 async function recordResults(room) {
   if (room.recorded) return;
-  const people = humans(room);
+  const people = humans(room).filter((p) => !p.spectator);
   const ranked = people.length >= 2;
   const all = [...room.players.values()];
   let winners;
@@ -539,7 +552,7 @@ function scheduleHandover(room) {
   room.handoverTimer = setTimeout(() => {
     const host = room.players.get(room.hostId);
     if (host && isConnected(host)) return;
-    const nextHost = onlineHumans(room).sort((a, b) => a.joinedAt - b.joinedAt)[0];
+    const nextHost = voters(room).sort((a, b) => a.joinedAt - b.joinedAt)[0] || onlineHumans(room)[0];
     if (nextHost) { room.hostId = nextHost.id; broadcast(room); }
   }, HOST_HANDOVER_MS);
 }
@@ -585,19 +598,26 @@ function scheduleBots(room, elapsed = 0) {
 function addBot(room, level) {
   const used = new Set([...room.players.values()].map((p) => p.name));
   const name = shuffle(BOT_NAMES).find((n) => !used.has(n)) || uniqueName(room, 'NPC');
-  const p = { id: rand(6), token: null, bot: true, level, name, score: 0, gain: 0, team: null, joinedAt: Date.now(), streams: new Set() };
+  const p = {
+    id: rand(6), token: null, bot: true, level, name, score: 0, gain: 0, team: null, joinedAt: Date.now(), streams: new Set(),
+    avatar: crypto.randomInt(AVATARS.length), color: crypto.randomInt(COLORS),
+  };
   room.players.set(p.id, p);
   return p;
 }
 
 /* ---------- 操作 ---------- */
-function addPlayer(room, name, user) {
+// opts: { avatar, color, spectator }
+function addPlayer(room, name, user, opts = {}) {
   const p = {
     id: rand(6), token: rand(16), name: uniqueName(room, user ? user.nickname : name), score: 0, gain: 0, team: null,
     userId: user ? user.id : null, seen: 0, correct: 0, joinedAt: Date.now(), streams: new Set(),
+    avatar: clampInt(opts.avatar, AVATARS.length, crypto.randomInt(AVATARS.length)),
+    color: clampInt(opts.color, COLORS, crypto.randomInt(COLORS)),
+    spectator: !!opts.spectator,
   };
   // 試合の途中に来た人は、人数の少ないチームに入る
-  if (teamMode(room) && inGame(room) && room.phase !== 'final') p.team = smallerTeam(room);
+  if (!p.spectator && teamMode(room) && inGame(room) && room.phase !== 'final') p.team = smallerTeam(room);
   room.players.set(p.id, p);
   return p;
 }
@@ -618,10 +638,10 @@ const actions = {
     const room = {
       code, hostId: null, players: new Map(), phase: 'lobby', settings: { count: 10, time: 15 },
       config: null, votes: new Map(), ready: new Set(), questions: [], qIndex: 0, answers: new Map(),
-      botTimers: [], lastActive: Date.now(),
+      botTimers: [], lastActive: Date.now(), chat: [],
     };
     rooms.set(code, room);
-    const me = addPlayer(room, name, user);
+    const me = addPlayer(room, name, user, { avatar: body.avatar, color: body.color });
     room.hostId = me.id;
     return { ok: true, code, token: me.token };
   },
@@ -638,7 +658,7 @@ const actions = {
     const name = user ? user.nickname : cleanName(body.name);
     if (!name) return { ok: false, error: 'ニックネームを入力してください。' };
     if (humans(room).length >= MAX_PLAYERS) return { ok: false, error: 'このルームは満員です。' };
-    const me = addPlayer(room, name, user);
+    const me = addPlayer(room, name, user, { avatar: body.avatar, color: body.color, spectator: !!body.spectator });
     room.lastActive = Date.now();
     broadcast(room);
     return { ok: true, code, token: me.token };
@@ -666,7 +686,7 @@ const actions = {
     room.votes.delete(me.id);
     if (room.ready) room.ready.delete(me.id);
     if (humans(room).length === 0) { deleteRoom(room); return { ok: true }; }
-    if (room.hostId === me.id) room.hostId = (onlineHumans(room)[0] || humans(room)[0]).id;
+    if (room.hostId === me.id) room.hostId = (voters(room)[0] || onlineHumans(room)[0] || humans(room)[0]).id;
     maybeAutoReveal(room);
     maybeCloseVote(room);
     broadcast(room);
@@ -706,7 +726,7 @@ const actions = {
   },
   vote(body) {
     const { room, me } = auth(body);
-    if (!me || room.phase !== 'vote') return { ok: false };
+    if (!me || room.phase !== 'vote' || me.spectator) return { ok: false };
     if (room.ready.has(me.id)) return { ok: false, error: '投票を変更するには、準備OKを取り消してください。' };
     const b = BALLOT.find((x) => x.key === body.key);
     if (!b || !b.options.some((o) => o.id === String(body.value))) return { ok: false };
@@ -718,7 +738,7 @@ const actions = {
   },
   ready(body) {
     const { room, me } = auth(body);
-    if (!me || room.phase !== 'vote') return { ok: false };
+    if (!me || room.phase !== 'vote' || me.spectator) return { ok: false };
     if (body.on) {
       if (!fullyVoted(room, me)) return { ok: false, error: 'すべての項目に投票してから押してください。' };
       room.ready.add(me.id);
@@ -738,6 +758,7 @@ const actions = {
   answer(body) {
     const { room, me } = auth(body);
     if (!me) return { ok: false };
+    if (me.spectator) return { ok: false, error: '観戦中は回答できません。' };
     if (room.phase !== 'question') return { ok: false, error: 'この問題はもう締め切られました。' };
     const q = room.questions[room.qIndex];
     let input;
@@ -753,6 +774,42 @@ const actions = {
     const ok = submitAnswer(room, me, input);
     return ok ? { ok: true } : { ok: false, error: '時間切れです。' };
   },
+  // アイコンと色を変える
+  profile(body) {
+    const { room, me } = auth(body);
+    if (!me) return { ok: false };
+    me.avatar = clampInt(body.avatar, AVATARS.length, me.avatar || 0);
+    me.color = clampInt(body.color, COLORS, me.color || 0);
+    broadcast(room);
+    return { ok: true };
+  },
+  // 観戦とプレイヤーを切りかえる（ロビーと結果発表のときだけ）
+  spectate(body) {
+    const { room, me } = auth(body);
+    if (!me || !canSetUp(room)) return { ok: false, error: 'ゲーム中は切り替えられません。' };
+    const on = !!body.on;
+    if (on && room.hostId === me.id) return { ok: false, error: 'ルーム主は観戦にできません。' };
+    me.spectator = on;
+    me.team = null;
+    broadcast(room);
+    return { ok: true };
+  },
+  // ひとことチャット（出題中は送れない）
+  chat(body) {
+    const { room, me } = auth(body);
+    if (!me) return { ok: false };
+    if (room.phase === 'question') return { ok: false, error: '出題中はチャットを送れません。' };
+    const text = String(body.text || '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, CHAT_MAX);
+    if (!text) return { ok: false };
+    const now = Date.now();
+    if (now - (me.lastChat || 0) < CHAT_GAP_MS) return { ok: false, error: '少し待ってから送信してください。' };
+    me.lastChat = now;
+    room.chat = room.chat || [];
+    room.chat.push({ i: rand(4), id: me.id, name: me.name, avatar: me.avatar || 0, color: me.color || 0, text, t: now });
+    if (room.chat.length > CHAT_KEEP) room.chat.splice(0, room.chat.length - CHAT_KEEP);
+    broadcast(room);
+    return { ok: true };
+  },
   // リアクションスタンプ：ルームのみんなの画面に飛ばす（記録はしない）
   react(body) {
     const { room, me } = auth(body);
@@ -761,7 +818,7 @@ const actions = {
     const now = Date.now();
     if (now - (me.lastReact || 0) < REACTION_GAP_MS) return { ok: false };
     me.lastReact = now;
-    const data = { id: me.id, name: me.name, k, team: me.team || null };
+    const data = { id: me.id, name: me.name, k, team: me.team || null, avatar: me.avatar || 0, color: me.color || 0 };
     for (const p of room.players.values()) for (const res of p.streams) send(res, 'react', data);
     return { ok: true };
   },
@@ -827,6 +884,7 @@ function snapshotOf(room) {
     players: [...room.players.values()].map((p) => ({
       id: p.id, token: p.token, name: p.name, bot: !!p.bot, level: p.level, score: p.score, gain: p.gain, team: p.team, joinedAt: p.joinedAt,
       userId: p.userId || null, seen: p.seen || 0, correct: p.correct || 0, streak: p.streak || 0, bonus: p.bonus || 0,
+      avatar: p.avatar || 0, color: p.color || 0, spectator: !!p.spectator,
     })),
     questions: room.questions,
     qIndex: room.qIndex,
@@ -836,6 +894,7 @@ function snapshotOf(room) {
     forcedSolo: room.forcedSolo,
     lastTally: room.lastTally,
     recorded: room.recorded || null,
+    chat: room.chat || [],
     qElapsedMs: room.phase === 'question' ? now - room.qStartedAt : 0,
     qRemainingMs: room.phase === 'question' ? Math.max(0, room.deadline - now) : 0,
     revealRemainingMs: room.phase === 'reveal' ? Math.max(0, room.revealEndsAt - now) : 0,
@@ -852,7 +911,7 @@ function restoreRoom(snap) {
     votes: new Map(snap.votes || []), ready: new Set(snap.ready || []),
     players: new Map(), questions: snap.questions || [], qIndex: snap.qIndex || 0,
     answers: new Map(snap.answers || []), buzzWinner: snap.buzzWinner || null,
-    hideFrom: snap.hideFrom, forcedSolo: snap.forcedSolo, lastTally: snap.lastTally, recorded: snap.recorded || null,
+    hideFrom: snap.hideFrom, forcedSolo: snap.forcedSolo, lastTally: snap.lastTally, recorded: snap.recorded || null, chat: snap.chat || [],
     botTimers: [], lastActive: now, restoredAt: now,
   };
   for (const p of snap.players || []) room.players.set(p.id, { ...p, streams: new Set() });
