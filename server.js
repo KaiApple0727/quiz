@@ -13,6 +13,9 @@ const http = require('http');
 const zlib = require('zlib');
 const crypto = require('crypto');
 const { GENRES, BANK } = require('./questions');
+// ログイン機能（下書き・まだ使っていない）。accounts.js がなくても動くようにしておく
+let accounts = null;
+try { accounts = require('./accounts'); } catch { accounts = null; }
 
 const PORT = process.env.PORT || 3000;
 const MAX_PLAYERS = 50;
@@ -23,6 +26,10 @@ const REVEAL_MS = 5000;              // 答え合わせを見せてから次の�
 const COUNTS = [5, 10, 15, 30];          // ルーム主が選べる問題数
 const TIMES = [10, 15, 20, 30];      // ルーム主が選べる制限時間（秒）
 const BUZZ_POINTS = 1000;            // 早押しで正解したときの得点
+// 連続正解ボーナス：2連続 +50、3連続 +100 … 6連続以上 +250
+const streakBonus = (streak) => (streak >= 2 ? Math.min(streak - 1, 5) * 50 : 0);
+const REACTIONS = ['すごい！', 'おしい！', 'ドンマイ', 'ナイス！', 'えっ!?', 'はやっ！'];
+const REACTION_GAP_MS = 700;         // スタンプの連打防止
 const HOST_HANDOVER_MS = 15000;      // ルーム主が切断したまま戻らないとき、次の人に交代するまでの時間
 const ROOM_IDLE_MS = 15 * 60 * 1000; // 誰もいないルームを消すまでの時間
 const GRACE_MS = 600;                // 通信の遅れを見込んだ受付の猶予
@@ -282,6 +289,7 @@ function viewFor(room, player) {
     snap: room.snap || (room.snap = sealSnapshot(snapshotOf(room))),
     settings: room.settings,
     choices: { counts: COUNTS, times: TIMES },
+    reactions: REACTIONS,
     players: [...room.players.values()].map((p) => ({
       id: p.id,
       name: p.name,
@@ -293,6 +301,8 @@ function viewFor(room, player) {
       bot: !!p.bot,
       level: p.bot ? BOT_LEVELS[p.level].label : undefined,
       team: p.team || null,
+      account: !!p.userId,
+      streak: hidden && p.id !== player.id ? 0 : (p.streak || 0),
       answered: room.phase === 'question' ? room.answers.has(p.id) : false,
     })),
   };
@@ -311,7 +321,10 @@ function viewFor(room, player) {
     v.hidden = hidden;
     v.hideFrom = room.hideFrom;
   }
-  if (room.phase === 'final') v.finalElapsedMs = Date.now() - room.finalAt; // 結果発表の演出を全員でそろえるため
+  if (room.phase === 'final') {
+    v.finalElapsedMs = Date.now() - room.finalAt; // 結果発表の演出を全員でそろえるため
+    v.record = room.recorded || null;               // 成績を記録したか
+  }
   if (room.phase === 'vote') {
     const live = onlineHumans(room);
     v.vote = {
@@ -371,6 +384,8 @@ function viewFor(room, player) {
         })) : null,
         myCorrect: !!mine && mine.correct,
         myGain: player.gain,
+        myBonus: player.bonus || 0,
+        myStreak: player.streak || 0,
         winner: winner ? { id: winner.id, name: winner.name, team: winner.team, sec: (room.buzzWinner.ms / 1000).toFixed(1) } : null,
         nextInMs: Math.max(0, room.revealEndsAt - Date.now()),
         last: room.qIndex + 1 >= room.questions.length,
@@ -402,7 +417,8 @@ function startGame(room) {
     return { t: q.t, c: order.map((i) => q.c[i]), a: order.indexOf(0), typing, accept: typing ? acceptList(q) : null };
   });
   room.hideFrom = hideFromIndex(room.questions.length);
-  for (const p of room.players.values()) { p.score = 0; p.gain = 0; }
+  room.recorded = null;
+  for (const p of room.players.values()) { p.score = 0; p.gain = 0; p.bonus = 0; p.streak = 0; p.seen = 0; p.correct = 0; }
   showQuestion(room, 0);
 }
 function showQuestion(room, i) {
@@ -411,7 +427,7 @@ function showQuestion(room, i) {
   room.qIndex = i;
   room.answers = new Map();
   room.buzzWinner = null;
-  for (const p of room.players.values()) p.gain = 0;
+  for (const p of room.players.values()) { p.gain = 0; p.bonus = 0; p.seen = (p.seen || 0) + 1; } // 出題された問題数（成績用）
   room.qStartedAt = Date.now();
   room.deadline = room.qStartedAt + room.config.time * 1000;
   room.timer = setTimeout(() => reveal(room), room.config.time * 1000 + GRACE_MS);
@@ -422,16 +438,24 @@ function reveal(room) {
   if (room.phase !== 'question') return;
   clearTimers(room);
   const q = room.questions[room.qIndex];
+  for (const [pid, a] of room.answers) { const p = room.players.get(pid); if (p && a.correct) p.correct = (p.correct || 0) + 1; }
   if (!buzzMode(room)) {
     const limit = room.config.time * 1000;
-    for (const [pid, a] of room.answers) {
-      const p = room.players.get(pid);
-      if (p && a.correct) {
+    for (const p of room.players.values()) {
+      const a = room.answers.get(p.id);
+      if (a && a.correct) {
         const pts = Math.round(1000 - 500 * Math.min(1, a.ms / limit)); // 速いほど高得点（500〜1000点）
-        p.score += pts;
-        p.gain = pts;
+        p.streak = (p.streak || 0) + 1;
+        p.bonus = streakBonus(p.streak);
+        p.score += pts + p.bonus;
+        p.gain = pts + p.bonus;
+      } else {
+        p.streak = 0; // まちがえた・答えなかったら連続は止まる
       }
     }
+  } else {
+    // 早押し：まちがえた（お手つき）人だけ連続が止まる。正解者の連続は答えたときに数えている
+    for (const [pid, a] of room.answers) { const p = room.players.get(pid); if (p && !a.correct) p.streak = 0; }
   }
   room.phase = 'reveal';
   room.revealEndsAt = Date.now() + REVEAL_MS;
@@ -443,7 +467,33 @@ function advance(room) {
   if (room.phase !== 'reveal') return;
   clearTimers(room);
   if (room.qIndex + 1 < room.questions.length) showQuestion(room, room.qIndex + 1);
-  else { room.phase = 'final'; room.finalAt = Date.now(); broadcast(room); }
+  else { room.phase = 'final'; room.finalAt = Date.now(); broadcast(room); recordResults(room); }
+}
+// 結果発表になったら、ログインしている人の成績を記録する（人間が2人以上ならランキングにも数える）
+async function recordResults(room) {
+  if (room.recorded) return;
+  const people = humans(room);
+  const ranked = people.length >= 2;
+  const all = [...room.players.values()];
+  let winners;
+  if (teamMode(room)) {
+    const board = teamBoard(room) || [];
+    const top = Math.max(...board.map((t) => t.score));
+    const tops = board.filter((t) => t.score === top);
+    winners = new Set(tops.length === 1 ? all.filter((p) => p.team === tops[0].id).map((p) => p.id) : []);
+  } else {
+    const top = Math.max(0, ...all.map((p) => p.score));
+    winners = new Set(top > 0 ? all.filter((p) => p.score === top).map((p) => p.id) : []);
+  }
+  const results = people.filter((p) => p.userId).map((p) => ({
+    id: p.userId, questions: p.seen || 0, correct: p.correct || 0, score: p.score, win: winners.has(p.id) ? 1 : 0,
+  }));
+  room.recorded = { ranked, accounts: results.length, saved: null };
+  if (!results.length) return;
+  if (!accounts) return;
+  const saved = await accounts.recordGame(results, ranked);
+  if (room.recorded) room.recorded.saved = saved;
+  if (rooms.get(room.code) === room) broadcast(room);
 }
 // input は { c: 選んだ番号 } か { text: 入力した答え }
 function submitAnswer(room, p, input) {
@@ -463,8 +513,10 @@ function submitAnswer(room, p, input) {
   if (buzzMode(room) && correct && !room.buzzWinner) {
     // 早押し: 最初の正解者だけ得点。そこで締め切る
     room.buzzWinner = { id: p.id, ms };
-    p.score += BUZZ_POINTS;
-    p.gain = BUZZ_POINTS;
+    p.streak = (p.streak || 0) + 1;
+    p.bonus = streakBonus(p.streak);
+    p.score += BUZZ_POINTS + p.bonus;
+    p.gain = BUZZ_POINTS + p.bonus;
     clearTimers(room);
     room.timer = setTimeout(() => reveal(room), 400);
     broadcast(room);
@@ -539,8 +591,11 @@ function addBot(room, level) {
 }
 
 /* ---------- 操作 ---------- */
-function addPlayer(room, name) {
-  const p = { id: rand(6), token: rand(16), name: uniqueName(room, name), score: 0, gain: 0, team: null, joinedAt: Date.now(), streams: new Set() };
+function addPlayer(room, name, user) {
+  const p = {
+    id: rand(6), token: rand(16), name: uniqueName(room, user ? user.nickname : name), score: 0, gain: 0, team: null,
+    userId: user ? user.id : null, seen: 0, correct: 0, joinedAt: Date.now(), streams: new Set(),
+  };
   // 試合の途中に来た人は、人数の少ないチームに入る
   if (teamMode(room) && inGame(room) && room.phase !== 'final') p.team = smallerTeam(room);
   room.players.set(p.id, p);
@@ -555,8 +610,9 @@ function auth(body) {
 const canSetUp = (room) => room.phase === 'lobby' || room.phase === 'final';
 
 const actions = {
-  create(body) {
-    const name = cleanName(body.name);
+  async create(body) {
+    const user = body.auth && accounts ? await accounts.userForRoom(body.auth) : null;
+    const name = user ? user.nickname : cleanName(body.name);
     if (!name) return { ok: false, error: 'ニックネームを入れてください。' };
     const code = newCode();
     const room = {
@@ -565,20 +621,24 @@ const actions = {
       botTimers: [], lastActive: Date.now(),
     };
     rooms.set(code, room);
-    const me = addPlayer(room, name);
+    const me = addPlayer(room, name, user);
     room.hostId = me.id;
     return { ok: true, code, token: me.token };
   },
-  join(body) {
+  async join(body) {
     const code = String(body.code || '').replace(/\D/g, '');
     const room = rooms.get(code);
     if (!room) return { ok: false, error: 'そのルームは見つかりません。番号を確かめてください。' };
     const known = body.token ? humans(room).find((p) => p.token === body.token) : null;
     if (known) return { ok: true, code, token: known.token, version: VERSION };
-    const name = cleanName(body.name);
+    const user = body.auth && accounts ? await accounts.userForRoom(body.auth) : null;
+    // 同じアカウントでもう入っていたら（別の端末から開いたときなど）、その人として入る
+    const same = user ? humans(room).find((p) => p.userId === user.id) : null;
+    if (same) return { ok: true, code, token: same.token, version: VERSION };
+    const name = user ? user.nickname : cleanName(body.name);
     if (!name) return { ok: false, error: 'ニックネームを入れてください。' };
     if (humans(room).length >= MAX_PLAYERS) return { ok: false, error: 'このルームは満員です。' };
-    const me = addPlayer(room, name);
+    const me = addPlayer(room, name, user);
     room.lastActive = Date.now();
     broadcast(room);
     return { ok: true, code, token: me.token };
@@ -693,6 +753,18 @@ const actions = {
     const ok = submitAnswer(room, me, input);
     return ok ? { ok: true } : { ok: false, error: '時間切れです。' };
   },
+  // リアクションスタンプ：ルームのみんなの画面に飛ばす（記録はしない）
+  react(body) {
+    const { room, me } = auth(body);
+    const k = Number(body.k);
+    if (!me || !(k >= 0 && k < REACTIONS.length)) return { ok: false };
+    const now = Date.now();
+    if (now - (me.lastReact || 0) < REACTION_GAP_MS) return { ok: false };
+    me.lastReact = now;
+    const data = { id: me.id, name: me.name, k, team: me.team || null };
+    for (const p of room.players.values()) for (const res of p.streams) send(res, 'react', data);
+    return { ok: true };
+  },
   close(body) {
     const { room, isHost } = auth(body);
     if (isHost) reveal(room);
@@ -754,6 +826,7 @@ function snapshotOf(room) {
     ready: [...(room.ready || [])],
     players: [...room.players.values()].map((p) => ({
       id: p.id, token: p.token, name: p.name, bot: !!p.bot, level: p.level, score: p.score, gain: p.gain, team: p.team, joinedAt: p.joinedAt,
+      userId: p.userId || null, seen: p.seen || 0, correct: p.correct || 0, streak: p.streak || 0, bonus: p.bonus || 0,
     })),
     questions: room.questions,
     qIndex: room.qIndex,
@@ -762,6 +835,7 @@ function snapshotOf(room) {
     hideFrom: room.hideFrom,
     forcedSolo: room.forcedSolo,
     lastTally: room.lastTally,
+    recorded: room.recorded || null,
     qElapsedMs: room.phase === 'question' ? now - room.qStartedAt : 0,
     qRemainingMs: room.phase === 'question' ? Math.max(0, room.deadline - now) : 0,
     revealRemainingMs: room.phase === 'reveal' ? Math.max(0, room.revealEndsAt - now) : 0,
@@ -778,7 +852,7 @@ function restoreRoom(snap) {
     votes: new Map(snap.votes || []), ready: new Set(snap.ready || []),
     players: new Map(), questions: snap.questions || [], qIndex: snap.qIndex || 0,
     answers: new Map(snap.answers || []), buzzWinner: snap.buzzWinner || null,
-    hideFrom: snap.hideFrom, forcedSolo: snap.forcedSolo, lastTally: snap.lastTally,
+    hideFrom: snap.hideFrom, forcedSolo: snap.forcedSolo, lastTally: snap.lastTally, recorded: snap.recorded || null,
     botTimers: [], lastActive: now, restoredAt: now,
   };
   for (const p of snap.players || []) room.players.set(p.id, { ...p, streams: new Set() });
@@ -882,9 +956,15 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && url.pathname === '/healthz') { res.end('ok'); return; }
   if (req.method === 'GET' && url.pathname === '/updates.json') return sendUpdates(res);
   if (req.method === 'POST' && url.pathname.startsWith('/api/')) {
-    const fn = actions[url.pathname.slice(5)];
+    const name = url.pathname.slice(5);
+    const table = name.startsWith('account/') ? ((accounts && accounts.actions) || {}) : actions;
+    const key = name.startsWith('account/') ? name.slice(8) : name;
+    const fn = Object.prototype.hasOwnProperty.call(table, key) ? table[key] : null;
     const body = await readJson(req);
-    const out = fn ? fn(body) : { ok: false };
+    const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
+    let out;
+    try { out = fn ? await fn(body, ip) : { ok: false }; }
+    catch (e) { console.error(e); out = { ok: false, error: 'うまくいきませんでした。もう一度お試しください。' }; }
     res.writeHead(fn ? 200 : 404, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
     res.end(JSON.stringify(out));
     return;

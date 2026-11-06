@@ -126,6 +126,40 @@ button.ans:disabled{cursor:default}
 .meter{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
 .count{font-family:var(--dot);font-size:1.3rem}
 
+/* juice */
+.flash{position:fixed;inset:0;pointer-events:none;z-index:28;animation:flash .6s ease-out forwards}
+.flash.ok{background:radial-gradient(circle at 50% 35%,rgba(255,226,120,.55),rgba(22,147,95,.18) 60%,transparent 80%)}
+.flash.ng{background:radial-gradient(circle at 50% 35%,rgba(210,58,63,.28),transparent 70%)}
+@keyframes flash{from{opacity:1}to{opacity:0}}
+#stage.shake{animation:shakeX .42s ease-in-out}
+@keyframes shakeX{0%,100%{transform:none}20%{transform:translateX(-8px)}40%{transform:translateX(7px)}60%{transform:translateX(-5px)}80%{transform:translateX(3px)}}
+.verdict.ok{animation:verdictpop .45s cubic-bezier(.2,1.6,.4,1)}
+@keyframes verdictpop{0%{transform:scale(.6);opacity:0}100%{transform:none;opacity:1}}
+.combo{display:inline-flex;align-items:center;gap:8px;padding:6px 14px;border-radius:999px;background:linear-gradient(90deg,var(--a1),var(--a3));color:#fff;font-weight:700;animation:combopop .5s cubic-bezier(.2,1.6,.4,1) .25s both}
+.combo b{font-family:var(--dot);font-weight:400}
+@keyframes combopop{0%{transform:scale(.3) rotate(-8deg);opacity:0}100%{transform:none;opacity:1}}
+.qhead .row{min-width:0}
+.tag,.streak{flex:none;white-space:nowrap}
+.streak{display:inline-block;padding:2px 10px;border-radius:99px;background:linear-gradient(90deg,var(--a1),var(--a3));color:#fff;font-size:.8rem;font-weight:700}
+.timer.pulse{animation:tpulse .35s ease-out}
+@keyframes tpulse{0%{transform:scale(1.35)}100%{transform:none}}
+.rank .mv{margin-left:6px;font-family:var(--dot);font-size:.85rem}
+.rank .mv.up{color:var(--good)} .rank .mv.down{color:var(--bad)}
+.rank li.rise{animation:rise .5s ease-out}
+@keyframes rise{from{transform:translateY(10px);background:var(--hi)}to{transform:none}}
+.rank .fire{margin-left:6px;padding:0 6px;border-radius:6px;background:var(--a1);color:#fff;font-size:.7rem;vertical-align:middle}
+button.ans:active:not(:disabled){transform:translateY(3px) scale(.97)}
+.reacts{display:flex;flex-wrap:wrap;gap:6px;justify-content:center}
+.react{border:2px solid var(--line);background:var(--surface);border-radius:999px;padding:6px 12px;font-weight:700;font-size:.9rem}
+.react.hit{animation:reacthit .3s ease-out}
+@keyframes reacthit{50%{transform:scale(1.18)}}
+.bubble{position:fixed;bottom:calc(70px + env(safe-area-inset-bottom,0px));z-index:27;display:flex;flex-direction:column;align-items:center;padding:6px 12px;border-radius:16px;background:var(--surface);border:2px solid var(--ink);box-shadow:0 4px 0 rgba(0,0,0,.15);pointer-events:none;animation:floatup 2.5s ease-out forwards;max-width:60vw}
+.bubble small{font-size:.7rem;color:var(--muted);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bubble b{font-family:var(--display);font-weight:400;font-size:1.1rem}
+.bubble.red{border-color:var(--team-red)} .bubble.blue{border-color:var(--team-blue)}
+.bubble.mine{background:var(--hi);color:var(--on-hi)}
+@keyframes floatup{0%{transform:translateY(20px) scale(.6);opacity:0}15%{transform:translateY(0) scale(1.05);opacity:1}100%{transform:translateY(-55vh) scale(1);opacity:0}}
+
 /* hidden scores & final */
 .secret{display:flex;flex-direction:column;align-items:center;gap:4px;padding:18px;border-radius:16px;border:2px dashed var(--line);background:var(--surface);text-align:center}
 .secret b{font-family:var(--display);font-weight:400;font-size:1.8rem;letter-spacing:.2em}
@@ -323,6 +357,141 @@ async function post(action, body){
   return fetch('/api/' + action, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)})
     .then((x) => x.json()).catch(() => ({ok:false, error:'サーバーにつながりません。'}));
 }
+// ---- 効果音（ファイルを使わず、その場で音を作る） ----
+const sfx = (() => {
+  let ctx = null;
+  let muted = store('quiz.mute') === '1';
+  function ac(){
+    if(muted) return null;
+    try{
+      if(!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+      if(ctx.state === 'suspended') ctx.resume();
+    }catch(e){ return null; }
+    return ctx;
+  }
+  function tone(freq, at, dur, type, vol, slideTo){
+    const c = ac(); if(!c) return;
+    const t = c.currentTime + at;
+    const o = c.createOscillator(), g = c.createGain();
+    o.type = type || 'sine';
+    o.frequency.setValueAtTime(freq, t);
+    if(slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol || 0.12, t + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(c.destination);
+    o.start(t); o.stop(t + dur + 0.03);
+  }
+  function noise(at, dur, vol){
+    const c = ac(); if(!c) return;
+    const len = Math.floor(c.sampleRate * dur), buf = c.createBuffer(1, len, c.sampleRate), d = buf.getChannelData(0);
+    for(let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const src = c.createBufferSource(), g = c.createGain(), f = c.createBiquadFilter();
+    f.type = 'lowpass'; f.frequency.value = 900;
+    src.buffer = buf; g.gain.value = vol || 0.15;
+    src.connect(f); f.connect(g); g.connect(c.destination);
+    src.start(c.currentTime + at);
+  }
+  return {
+    unlock(){ ac(); },
+    get muted(){ return muted; },
+    toggle(){ muted = !muted; store('quiz.mute', muted ? '1' : '0'); if(!muted){ ac(); this.tap(); } },
+    tap(){ tone(620, 0, 0.07, 'triangle', 0.14); },
+    send(){ tone(520, 0, 0.06, 'triangle', 0.12); tone(780, 0.05, 0.08, 'triangle', 0.12); },
+    correct(){ tone(1046.5, 0, 0.14, 'sine', 0.2); tone(1568, 0.12, 0.38, 'sine', 0.2); },        // ピンポーン
+    wrong(){ tone(196, 0, 0.42, 'square', 0.07); tone(185, 0, 0.42, 'sawtooth', 0.05); },          // ブブー
+    combo(n){ const base = 660; for(let i = 0; i < Math.min(n, 6); i++) tone(base * Math.pow(1.1225, i * 2), 0.32 + i * 0.07, 0.12, 'triangle', 0.12); },
+    tick(){ tone(1320, 0, 0.05, 'square', 0.05); },
+    question(){ tone(880, 0, 0.08, 'sine', 0.08, 1320); },
+    buzz(){ tone(440, 0, 0.2, 'square', 0.07); tone(660, 0.08, 0.2, 'square', 0.05); },
+    slot(){ tone(700 + Math.random() * 500, 0, 0.025, 'square', 0.025); },
+    stop(){ tone(1175, 0, 0.18, 'triangle', 0.16); tone(1760, 0.06, 0.2, 'sine', 0.08); },
+    drum(){ for(let i = 0; i < 22; i++) noise(i * 0.09, 0.08, 0.05 + i * 0.006); },
+    fanfare(){ [523, 659, 784, 1046.5].forEach((f, i) => tone(f, i * 0.12, 0.22, 'triangle', 0.16)); tone(1046.5, 0.5, 0.6, 'sine', 0.14); tone(1318.5, 0.5, 0.6, 'sine', 0.1); },
+    pop(){ tone(1200, 0, 0.07, 'sine', 0.07, 1700); },
+  };
+})();
+document.addEventListener('pointerdown', () => sfx.unlock(), {passive: true});
+function vibrate(p){ try{ if(navigator.vibrate) navigator.vibrate(p); }catch(e){} }
+function flash(kind){
+  const f = document.createElement('div');
+  f.className = 'flash ' + kind; f.setAttribute('aria-hidden', 'true');
+  document.body.appendChild(f);
+  setTimeout(() => f.remove(), 700);
+}
+function shake(){
+  const st = $('#stage'); st.classList.remove('shake'); void st.offsetWidth; st.classList.add('shake');
+  setTimeout(() => st.classList.remove('shake'), 500);
+}
+// 状態が変わったときの効果音・演出
+let revealFxKey = null, buzzFxKey = null, missFxKey = null, questionFxKey = null;
+function runFx(prev, cur){
+  if(!cur || !cur.question) return;
+  const key = cur.code + ':' + cur.question.index + ':' + (cur.config ? cur.config.genre : '');
+  if(cur.phase === 'question' && questionFxKey !== key){ questionFxKey = key; sfx.question(); }
+  if(cur.phase === 'question' && cur.buzz){
+    if(cur.buzz.winnerName && buzzFxKey !== key && cur.buzz.winnerName !== cur.me.name){ buzzFxKey = key; sfx.buzz(); }
+    if(cur.buzz.myMissed && missFxKey !== key){ missFxKey = key; sfx.wrong(); shake(); vibrate(90); }
+  }
+  if(cur.phase === 'reveal' && cur.reveal && revealFxKey !== key){
+    revealFxKey = key;
+    const rv = cur.reveal;
+    if(rv.myCorrect && rv.myGain){
+      sfx.correct(); flash('ok'); confetti(26); vibrate([25, 40, 25]);
+      if(rv.myStreak >= 2) sfx.combo(rv.myStreak);
+    } else if(cur.myAnswer != null && !(cur.buzz && cur.buzz.myMissed)){
+      sfx.wrong(); flash('ng'); shake(); vibrate(90);
+    }
+  }
+}
+// 得点のカウントアップ
+let countedKey = null;
+function countUp(){
+  const el = document.getElementById('gainpts'); if(!el) return;
+  const to = +el.dataset.to, key = el.dataset.key;
+  if(countedKey === key || reducedMotion){ el.textContent = '+' + to; return; }
+  countedKey = key;
+  const t0 = performance.now(), dur = 650;
+  (function step(now){
+    const k = Math.min(1, (now - t0) / dur), v = Math.round(to * (1 - Math.pow(1 - k, 3)));
+    const cur = document.getElementById('gainpts');
+    if(cur) cur.textContent = '+' + v;
+    if(k < 1) requestAnimationFrame(step);
+  })(t0);
+}
+// 順位の上がり下がり（答え合わせごとに前回とくらべる）
+let lastRanks = null, rankDeltaKey = null, rankDelta = {};
+function updateRankDelta(){
+  if(state.phase !== 'reveal' || state.hidden) return;
+  const key = state.code + ':' + state.question.index;
+  if(rankDeltaKey === key) return;
+  rankDeltaKey = key;
+  const now = {};
+  ranking().forEach((x) => { now[x.id] = rankNumber(x); });
+  rankDelta = {};
+  if(lastRanks) for(const id in now) if(lastRanks[id]) rankDelta[id] = lastRanks[id] - now[id];
+  lastRanks = now;
+}
+// リアクションスタンプ
+let lastReactAt = 0;
+function reactsHTML(){
+  const list = state.reactions || [];
+  if(!list.length) return '';
+  return `<div class="reacts" role="group" aria-label="リアクション">${list.map((t, i) => `<button type="button" class="react" data-act="react" data-v="${i}">${esc(t)}</button>`).join('')}</div>`;
+}
+function showReaction(d){
+  const list = (state && state.reactions) || [];
+  const text = list[d.k]; if(!text) return;
+  const b = document.createElement('div');
+  b.className = 'bubble' + (d.team ? ' ' + d.team : '') + (state && state.me && d.id === state.me.id ? ' mine' : '');
+  b.innerHTML = `<small>${esc(d.name)}</small><b>${esc(text)}</b>`;
+  b.style.left = (8 + Math.random() * 70) + '%';
+  b.setAttribute('aria-hidden', 'true');
+  document.body.appendChild(b);
+  sfx.pop();
+  setTimeout(() => b.remove(), 2600);
+}
+
 // ---- 再接続・再開・自動更新 ----
 const APP_VERSION = '__APP_VERSION__';   // サーバーが画面を送るときに書きかえる
 let lastSnap = null;                     // サーバーから預かっている、ルームの保存データ
@@ -369,9 +538,12 @@ function connect(){
     setOnline(true);
     if(next.snap) saveSnap(next.snap);
     if(checkVersion(next.version)) return;
+    const prev = state;
     state = next;
     onState();
+    runFx(prev, state);
   });
+  es.addEventListener('react', (ev) => { try{ showReaction(JSON.parse(ev.data)); }catch(e){} });
   es.addEventListener('restart', (ev) => {
     try{ const d = JSON.parse(ev.data); if(d.snap) saveSnap(d.snap); }catch(e){}
     restarting = true; setOnline(false); renderNetbar();
@@ -438,6 +610,7 @@ function renderHeader(){
   who.innerHTML =
     `<span class="pill${online ? '' : ' off'}"><span class="dot"></span>${online ? '参加 ' + n + '人' : '再接続中…'}</span>` + team +
     `<span class="pill${isHost() ? ' host' : ''}">${isHost() ? 'ルーム主・' : ''}${esc(me().name)}</span>` +
+    `<button class="link" data-act="mute" aria-pressed="${!sfx.muted}">${sfx.muted ? '音オフ' : '音オン'}</button>` +
     `<button class="link" data-act="leave">退出</button>`;
 }
 
@@ -471,9 +644,10 @@ function render(){
     ph === 'question' ? questionHTML() :
     ph === 'reveal' ? revealHTML() :
     ph === 'final' ? finalHTML() : '';
+  if(ph === 'reveal') countUp();
   if(ph === 'decided' && !slotRAF) slotRAF = requestAnimationFrame(spinSlots);
   if(ph === 'final'){ if(!finalRAF) finalRAF = requestAnimationFrame(animateFinal); }
-  else finalStart = 0;
+  else { finalStart = 0; finalFx = {}; }
   if(ph !== 'decided'){ decidedStart = 0; decidedKey = null; }
 }
 
@@ -728,6 +902,7 @@ function spinningName(i, el){
   const step = left < 500 ? 220 : left < 1000 ? 140 : 70;
   return names[Math.floor(el / step + i * 3) % names.length];
 }
+const firstSpinning = (el) => SLOT_STOPS.findIndex((t) => el < t);
 // スロットを回す（render で画面が描き直されても、経過時間から同じ見た目に戻る）
 function spinSlots(){
   slotRAF = 0;
@@ -741,10 +916,11 @@ function spinSlots(){
     const reel = document.getElementById('reel-' + i), box = document.getElementById('slot-' + i), v = document.getElementById('votes-' + i);
     if(!reel || !box) return;
     if(el >= SLOT_STOPS[i] || names.length < 2){
-      if(!box.classList.contains('stopped')){ box.classList.add('stopped'); reel.textContent = results[i]; if(v) v.textContent = counts[i] + '票'; }
+      if(!box.classList.contains('stopped')){ box.classList.add('stopped'); if(el - SLOT_STOPS[i] < 600) sfx.stop(); reel.textContent = results[i]; if(v) v.textContent = counts[i] + '票'; }
       return;
     }
-    reel.textContent = spinningName(i, el);
+    const nm = spinningName(i, el);
+    if(reel.textContent !== nm){ reel.textContent = nm; if(i === firstSpinning(el)) sfx.slot(); }
   });
   const t = document.getElementById('dec-title');
   if(t && el >= SLOT_STOPS[SLOT_STOPS.length - 1]) t.textContent = 'ルール決定！';
@@ -754,9 +930,13 @@ function spinSlots(){
 }
 
 /* question */
+function myStreakChip(){
+  const mine = state.players.find((p) => p.id === me().id);
+  return mine && mine.streak >= 2 && state.phase === 'question' ? ` <span class="streak">${mine.streak}連続中</span>` : '';
+}
 function qHead(){
   const q = state.question, sec = Math.ceil(remainingMs() / 1000);
-  return `<div class="qhead"><span class="row" style="gap:8px"><span class="qno">Q${q.index + 1} / ${q.total}</span>${tagsHTML()}</span>
+  return `<div class="qhead"><span class="row" style="gap:8px"><span class="qno">Q${q.index + 1} / ${q.total}</span>${tagsHTML()}${myStreakChip()}</span>
     <span class="timer${state.phase === 'question' && sec <= 5 ? ' low' : ''}" id="timer">${state.phase === 'question' ? sec : ''}</span></div>`;
 }
 function answersHTML(opts){
@@ -835,7 +1015,10 @@ function rankHTML(limit){
   const r = ranking(); let pos = 0, prev = null;
   return '<ol class="rank">' + r.slice(0, limit || r.length).map((x, i) => {
     if(x.score !== prev){ pos = i + 1; prev = x.score; }
-    return `<li class="${x.id === me().id ? 'me' : ''}"><span class="pos">${pos}</span><span class="nm">${teamDot(x)}${esc(x.name)}${npcTag(x)}</span><span class="gain">${x.gain && state.phase !== 'final' ? '+' + x.gain : ''}</span><span class="sc">${x.score}</span></li>`;
+    const dlt = state.phase === 'reveal' ? (rankDelta[x.id] || 0) : 0;
+    const arrow = dlt > 0 ? `<span class="mv up">↑${dlt}</span>` : dlt < 0 ? `<span class="mv down">↓${-dlt}</span>` : '';
+    const fire = state.phase === 'reveal' && x.streak >= 3 ? `<span class="fire">${x.streak}連続</span>` : '';
+    return `<li class="${x.id === me().id ? 'me' : ''}${dlt > 0 ? ' rise' : ''}"><span class="pos">${pos}</span><span class="nm">${teamDot(x)}${esc(x.name)}${npcTag(x)}${fire}${arrow}</span><span class="gain">${x.gain && state.phase !== 'final' ? '+' + x.gain : ''}</span><span class="sc">${x.score}</span></li>`;
   }).join('') + '</ol>';
 }
 function myPos(){
@@ -843,6 +1026,7 @@ function myPos(){
   return mine ? r.filter((x) => x.score > mine.score).length + 1 : 0;
 }
 function revealHTML(){
+  updateRankDelta();
   const q = state.question, rv = state.reveal, picked = state.myAnswer;
   const mine = state.players.find((p) => p.id === me().id) || {score:0};
   const last = q.index + 1 >= q.total;
@@ -871,7 +1055,8 @@ function revealHTML(){
     ${qHead()}
     <div class="marquee" style="padding:4px 0">
       <div class="verdict ${cls}" style="${verdict.length > 8 ? 'font-size:clamp(1.6rem,7vw,2.6rem)' : ''}">${verdict}</div>
-      ${rv.myGain ? `<div class="pts">+${rv.myGain}</div>` : ''}
+      ${rv.myGain ? `<div class="pts" id="gainpts" data-to="${rv.myGain}" data-key="${esc(state.code)}:${q.index}">+${rv.myGain}</div>` : ''}
+      ${rv.myCorrect && rv.myStreak >= 2 ? `<div class="combo"><span>${rv.myStreak}連続正解！</span><b>ボーナス +${rv.myBonus}</b></div>` : ''}
       ${sub}
       <p class="muted">${state.hidden ? '合計点と順位は結果発表までひみつ' : `合計 ${mine.score}点 ・ いま ${myPos()}位`}</p>
     </div>
@@ -880,6 +1065,7 @@ function revealHTML(){
     ${isTeam() ? `<h3>チーム</h3>${teamsHTML({scores:true, gain:true})}` : ''}
     <h3>順位</h3>
     ${rankHTML(8)}
+    ${reactsHTML()}
     <div class="meter"><span class="muted">${last ? '結果発表' : '次の問題'}まで <span class="count" id="nexttimer">${Math.ceil(remainingMs() / 1000)}</span> 秒</span>
       ${isHost() ? `<button class="btn small ghost" data-act="next">すぐ${last ? '結果発表へ' : '次へ'}</button>` : ''}</div>
   </div>`;
@@ -916,6 +1102,7 @@ function soloFinalHTML(){
     <p class="drum" data-from="${T.drum}" data-until="${T.p1}" ${el >= T.drum && el < T.p1 ? '' : 'hidden'}>1位は……</p>
     <div class="stack reveal-in" data-at="${T.rest}" ${el >= T.rest ? '' : 'hidden'}>
       <p class="pts center">あなたは ${myPos()}位</p>
+      ${reactsHTML()}
       ${rankHTML()}
       ${finalButtonsHTML()}
     </div>
@@ -942,6 +1129,7 @@ function teamFinalHTML(){
       ${teamsHTML({scores:true})}
       <h3>個人の成績</h3>
       <p class="pts center">あなたは ${myPos()}位</p>
+      ${reactsHTML()}
       ${rankHTML()}
       ${finalButtonsHTML()}
     </div>
@@ -966,10 +1154,18 @@ function teamBarValue(t, el){
   else v = t.score;
   return { h: v / max, n: Math.round(v) };
 }
+let finalFx = {};
+function finalSound(name, at, el){
+  // それぞれの合図を1回だけ鳴らす（あとから開いた人には鳴らさない）
+  if(el >= at && el < at + 1500 && !finalFx[name]){ finalFx[name] = true; sfx[name === 'p3' || name === 'p2' ? 'stop' : name](); }
+  if(el >= at) finalFx[name] = true;
+}
 function animateFinal(){
   finalRAF = 0;
   if(!state || state.phase !== 'final') return;
   const el = finalElapsed();
+  if(isTeam()){ finalSound('drum', FIN_TEAM.riseEnd, el); finalSound('fanfare', FIN_TEAM.win, el); }
+  else { finalSound('p3', FIN_SOLO.p3, el); finalSound('p2', FIN_SOLO.p2, el); finalSound('drum', FIN_SOLO.drum, el); finalSound('fanfare', FIN_SOLO.p1, el); }
   document.querySelectorAll('.final [data-at]').forEach((n) => {
     const on = el >= +n.dataset.at;
     if(n.classList.contains('pod')){
@@ -1005,15 +1201,15 @@ function animateFinal(){
       if(bars) bars.classList.toggle('hold', el >= T.riseEnd && el < T.win);
     }
   }
-  if(el >= (isTeam() ? FIN_TEAM.win : FIN_SOLO.p1) && !document.querySelector('.confetti') && el < (isTeam() ? FIN_TEAM.win : FIN_SOLO.p1) + 4000) confetti();
+  if(el >= (isTeam() ? FIN_TEAM.win : FIN_SOLO.p1) && !finalFx.confetti && (finalFx.confetti = true) && el < (isTeam() ? FIN_TEAM.win : FIN_SOLO.p1) + 4000) confetti();
   const end = isTeam() ? FIN_TEAM.rest : FIN_SOLO.rest;
   if(el < end + 200) finalRAF = requestAnimationFrame(animateFinal);
 }
-function confetti(){
+function confetti(count){
   if(reducedMotion) return;
   const box = document.createElement('div'); box.className = 'confetti'; box.setAttribute('aria-hidden', 'true');
   const colors = ['var(--a1)', 'var(--a2)', 'var(--a3)', 'var(--a4)', 'var(--hi)'];
-  for(let i = 0; i < 60; i++){
+  for(let i = 0; i < (count || 60); i++){
     const p = document.createElement('i');
     p.style.left = Math.random() * 100 + '%';
     p.style.background = colors[i % colors.length];
@@ -1023,11 +1219,12 @@ function confetti(){
     box.appendChild(p);
   }
   document.body.appendChild(box);
-  setTimeout(() => box.remove(), 5000);
+  setTimeout(() => box.remove(), count ? 3500 : 5000);
 }
 
 /* ---------- ticking ---------- */
 let lastTick = Date.now();
+let tickSec = null;
 setInterval(() => {
   const now = Date.now(), dt = now - lastTick; lastTick = now;
   renderNetbar();
@@ -1047,6 +1244,10 @@ setInterval(() => {
   if(bar && state.phase !== 'reveal'){
     const total = state.question ? state.question.time * 1000 : 1;
     bar.style.width = (100 * ms / total) + '%';
+  }
+  if(state.phase === 'question' && sec <= 3 && sec >= 1 && state.myAnswer == null && pendingAnswer == null && tickSec !== state.question.index + ':' + sec){
+    tickSec = state.question.index + ':' + sec; sfx.tick();
+    if(el){ el.classList.remove('pulse'); void el.offsetWidth; el.classList.add('pulse'); }
   }
   if(state.phase === 'question' && ms <= 0 && state.myAnswer == null && pendingAnswer == null && !$('#stage').dataset.out){ $('#stage').dataset.out = '1'; render(); }
   if(ms > 0) $('#stage').dataset.out = '';
@@ -1077,10 +1278,18 @@ document.addEventListener('click', async (e) => {
       if(!r.ok){ if(state.vote) state.vote.myReady = !on; render(); if(r.error) toast(r.error); }
       break;
     }
+    case 'mute': sfx.toggle(); renderHeader(); break;
+    case 'react': {
+      if(Date.now() - lastReactAt < 700) return;
+      lastReactAt = Date.now();
+      b.classList.remove('hit'); void b.offsetWidth; b.classList.add('hit');
+      api('react', {k: +v});
+      break;
+    }
     case 'answer': {
       if(!online){ toast('つなぎ直しています。少し待ってから答えてください。'); return; }
       if(state.myAnswer != null || pendingAnswer != null || remainingMs() <= 0) return;
-      pendingAnswer = +v; render();
+      pendingAnswer = +v; sfx.tap(); vibrate(15); render();
       const r = await api('answer', {c: +v});
       if(!r.ok){ pendingAnswer = null; toast(r.error || '回答を送れませんでした。'); render(); }
       break;
@@ -1115,7 +1324,7 @@ document.addEventListener('submit', async (e) => {
   if(!text){ toast('答えを入力してください。'); return; }
   if(!state || state.phase !== 'question' || questionLocked()) return;
   if(!online){ toast('つなぎ直しています。少し待ってから送ってください。'); return; }
-  pendingAnswer = -1; pendingText = text; render();
+  pendingAnswer = -1; pendingText = text; sfx.send(); vibrate(15); render();
   const r = await api('answer', {text});
   if(!r.ok){ pendingAnswer = null; pendingText = null; toast(r.error || '回答を送れませんでした。'); render(); }
 });
