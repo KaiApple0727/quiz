@@ -629,7 +629,82 @@ function auth(body) {
 }
 const canSetUp = (room) => room.phase === 'lobby' || room.phase === 'final';
 
+/* ---------- 意見箱 ---------- */
+// 送られた意見は Google フォームに転送する。
+// Render の環境変数 FEEDBACK_FORM_URL に、Google フォームの「事前入力したURL」を登録する
+// （4つの欄に KIND・TEXT・NAME・INFO と入れて作ったリンク）。
+const FEEDBACK_KINDS = ['要望', '不具合', 'その他'];
+const FEEDBACK_MAX = 500;
+const FEEDBACK_LIMIT = { count: 3, windowMs: 10 * 60 * 1000 }; // 同じ回線から10分に3件まで
+const feedbackLog = new Map();   // ip -> 送った時刻の一覧
+const feedbackMemory = [];       // フォームが未設定のときに、とりあえず残しておく（再起動で消える）
+function feedbackForm() {
+  const raw = process.env.FEEDBACK_FORM_URL || '';
+  if (!raw) return null;
+  try {
+    const u = new URL(raw);
+    const fields = {};
+    for (const [k, v] of u.searchParams) if (k.startsWith('entry.')) fields[String(v).trim().toUpperCase()] = k;
+    if (!fields.TEXT) return null;
+    const action = `${u.origin}${u.pathname.replace(/\/viewform$/, '/formResponse')}`;
+    return { action, fields };
+  } catch {
+    return null;
+  }
+}
+const FEEDBACK_FORM = feedbackForm();
+async function sendFeedback(item) {
+  if (!FEEDBACK_FORM) {
+    feedbackMemory.push(item);
+    if (feedbackMemory.length > 200) feedbackMemory.shift();
+    console.log('意見箱（フォーム未設定のためログのみ）:', JSON.stringify(item));
+    return true;
+  }
+  const body = new URLSearchParams();
+  const { fields } = FEEDBACK_FORM;
+  if (fields.KIND) body.set(fields.KIND, item.kind);
+  body.set(fields.TEXT, item.text);
+  if (fields.NAME) body.set(fields.NAME, item.name);
+  if (fields.INFO) body.set(fields.INFO, item.info);
+  try {
+    const res = await fetch(FEEDBACK_FORM.action, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) console.error('意見箱：フォームへの送信に失敗', res.status);
+    return res.ok;
+  } catch (e) {
+    console.error('意見箱：フォームへの送信に失敗', e.message);
+    return false;
+  }
+}
+
 const actions = {
+  async feedback(body, ip) {
+    const kind = FEEDBACK_KINDS.includes(body.kind) ? body.kind : 'その他';
+    const text = String(body.text || '').replace(/\r\n?/g, '\n').trim().slice(0, FEEDBACK_MAX);
+    if (text.length < 2) return { ok: false, error: '内容を入力してください。' };
+    const name = String(body.name || '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 20) || '（名前なし）';
+    const now = Date.now();
+    const key = ip || 'unknown';
+    const recent = (feedbackLog.get(key) || []).filter((t) => now - t < FEEDBACK_LIMIT.windowMs);
+    if (recent.length >= FEEDBACK_LIMIT.count) return { ok: false, error: '短い時間に送れるのは3件までです。しばらくしてからお試しください。' };
+    const ctx = body.ctx && typeof body.ctx === 'object' ? body.ctx : {};
+    const info = [
+      `バージョン ${VERSION}`,
+      ctx.phase ? `画面 ${String(ctx.phase).slice(0, 20)}` : '',
+      ctx.room ? `ルーム ${String(ctx.room).slice(0, 8)}` : '',
+      ctx.screen ? `画面サイズ ${String(ctx.screen).slice(0, 20)}` : '',
+      ctx.ua ? `ブラウザ ${String(ctx.ua).slice(0, 200)}` : '',
+    ].filter(Boolean).join(' / ');
+    const ok = await sendFeedback({ kind, text, name, info, at: new Date(now).toISOString() });
+    if (!ok) return { ok: false, error: '送信に失敗しました。時間をおいてもう一度お試しください。' };
+    recent.push(now);
+    feedbackLog.set(key, recent);
+    return { ok: true };
+  },
   async create(body) {
     const user = body.auth && accounts ? await accounts.userForRoom(body.auth) : null;
     const name = user ? user.nickname : cleanName(body.name);
@@ -1038,6 +1113,8 @@ setInterval(() => {
   for (const [, room] of rooms) {
     if (onlineHumans(room).length === 0 && now - room.lastActive > ROOM_IDLE_MS) deleteRoom(room);
   }
+  // 意見箱の送信回数の記録を片づける
+  for (const [ip, list] of feedbackLog) if (!list.some((t) => now - t < FEEDBACK_LIMIT.windowMs)) feedbackLog.delete(ip);
 }, 60 * 1000).unref();
 
 // 更新で止められるとき：みんなに最新の保存データと「更新中」の合図を送ってから終わる
@@ -1059,4 +1136,7 @@ function shutdown() {
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
 
-server.listen(PORT, () => console.log(`クイズ大会サーバー起動: http://localhost:${PORT}（バージョン ${VERSION}）`));
+server.listen(PORT, () => {
+  console.log(`クイズ大会サーバー起動: http://localhost:${PORT}（バージョン ${VERSION}）`);
+  console.log(FEEDBACK_FORM ? '意見箱: Google フォームに転送します' : '意見箱: FEEDBACK_FORM_URL が未設定のため、届いた意見はログに出すだけです');
+});

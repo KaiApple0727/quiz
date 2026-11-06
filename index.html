@@ -218,6 +218,15 @@ button.ans:active:not(:disabled){transform:translateY(3px) scale(.97)}
 .ch-form{display:flex;gap:8px;max-width:860px;width:100%;margin:0 auto}
 .ch-form input{flex:1;min-width:0;font-size:1rem;padding:10px 12px}
 
+/* feedback */
+#fbback{position:fixed;inset:0;z-index:44;background:rgba(20,18,30,.45)}
+#fbsheet{position:fixed;left:50%;bottom:0;transform:translateX(-50%);z-index:45;width:min(560px,100%);max-height:92vh;overflow-y:auto;display:flex;flex-direction:column;gap:8px;background:var(--surface);border-top:2px solid var(--ink);border-radius:18px 18px 0 0;padding:14px max(16px,env(safe-area-inset-right,0px)) calc(16px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));animation:sheetup .25s ease-out}
+.fb-body{display:flex;flex-direction:column;gap:10px}
+.fb-body textarea{width:100%;font:inherit;color:var(--ink);background:var(--bg);border:2px solid var(--line);border-radius:12px;padding:10px 12px;resize:vertical;min-height:110px}
+.fb-body input[type=text]{font-size:1rem;padding:10px 12px}
+.fb-meta{display:flex;justify-content:flex-end;margin-top:-6px}
+.fb-done{margin:0;padding:10px;border-radius:12px;background:var(--good);color:var(--surface);text-align:center;font-weight:700}
+
 /* hidden scores & final */
 .secret{display:flex;flex-direction:column;align-items:center;gap:4px;padding:18px;border-radius:16px;border:2px dashed var(--line);background:var(--surface);text-align:center}
 .secret b{font-family:var(--display);font-weight:400;font-size:1.8rem;letter-spacing:.2em}
@@ -479,6 +488,26 @@ button.ans:active:not(:disabled){transform:translateY(3px) scale(.97)}
   <span class="badge" id="chatbadge" hidden></span>
 </button>
 <div id="chatpeek" hidden></div>
+<div id="fbback" hidden></div>
+<section id="fbsheet" role="dialog" aria-modal="true" aria-labelledby="fb-title" hidden>
+  <div class="ch-head"><h2 id="fb-title">意見箱</h2><button type="button" class="hbtn" data-act="fbClose">閉じる</button></div>
+  <form id="fbform" class="fb-body" autocomplete="off">
+    <p class="hint">欲しい機能や不具合を送ってください。内容は運営者だけが読みます。</p>
+    <div class="seg" role="group" aria-label="種類">
+      <button type="button" data-act="fbKind" data-v="要望" aria-pressed="true">要望</button>
+      <button type="button" data-act="fbKind" data-v="不具合" aria-pressed="false">不具合</button>
+      <button type="button" data-act="fbKind" data-v="その他" aria-pressed="false">その他</button>
+    </div>
+    <label class="lbl" for="fbtext">内容</label>
+    <textarea id="fbtext" maxlength="500" rows="5" placeholder="例：問題のジャンルに「スポーツ」がほしい／答え合わせの画面で〇〇が表示されない"></textarea>
+    <div class="fb-meta"><span class="hint" id="fbcount">0 / 500</span></div>
+    <label class="lbl" for="fbname">名前（なくても送れます）</label>
+    <input type="text" id="fbname" maxlength="20" placeholder="ニックネームなど">
+    <p class="hint" id="fbnote">不具合の調査のため、ブラウザの種類と画面サイズも一緒に送られます。</p>
+    <button class="btn hi block" type="submit" id="fbsend">送信する</button>
+    <p class="fb-done" id="fbdone" hidden>送信しました。ご意見ありがとうございます。</p>
+  </form>
+</section>
 <section id="chatsheet" aria-label="チャット" hidden>
   <div class="ch-head"><h2>チャット</h2><button type="button" class="hbtn" data-act="chatClose">閉じる</button></div>
   <ol class="ch-list" id="chatlist"></ol>
@@ -687,6 +716,32 @@ document.addEventListener('submit', async (e) => {
   const r = await api('chat', {text});
   if(r.ok){ inp.value = ''; sfx.send(); } else if(r.error) toast(r.error);
 });
+
+// 意見箱
+let fbKind = '要望';
+function openFeedback(){
+  $('#fbback').hidden = false; $('#fbsheet').hidden = false; $('#fbdone').hidden = true;
+  const nm = $('#fbname'); const home = $('#name');
+  if(nm && !nm.value) nm.value = (state && state.me && state.me.name) || (home && home.value.trim()) || store('quiz.name') || '';
+  setTimeout(() => $('#fbtext').focus(), 50);
+}
+function closeFeedback(){ $('#fbback').hidden = true; $('#fbsheet').hidden = true; }
+document.addEventListener('input', (e) => { if(e.target.id === 'fbtext') $('#fbcount').textContent = e.target.value.length + ' / 500'; });
+document.addEventListener('keydown', (e) => { if(e.key === 'Escape' && !$('#fbsheet').hidden) closeFeedback(); });
+$('#fbback').addEventListener('click', closeFeedback);
+document.addEventListener('submit', async (e) => {
+  if(e.target.id !== 'fbform') return;
+  e.preventDefault();
+  const text = $('#fbtext').value.trim();
+  if(text.length < 2){ toast('内容を入力してください。'); $('#fbtext').focus(); return; }
+  const btn = $('#fbsend'); btn.disabled = true; btn.textContent = '送信中…';
+  const ctx = { phase: state ? state.phase : 'home', room: session ? session.code : '', screen: innerWidth + 'x' + innerHeight, ua: navigator.userAgent };
+  const r = await post('feedback', { kind: fbKind, text, name: $('#fbname').value.trim(), ctx });
+  btn.disabled = false; btn.textContent = '送信する';
+  if(r.ok){ $('#fbtext').value = ''; $('#fbcount').textContent = '0 / 500'; $('#fbdone').hidden = false; sfx.send(); }
+  else toast(r.error || '送信できませんでした。');
+});
+const feedbackLink = () => `<p class="center"><button type="button" class="link" data-act="fbOpen">ご意見・不具合の報告</button></p>`;
 
 // リアクションスタンプ
 let lastReactAt = 0;
@@ -916,7 +971,8 @@ function homeHTML(){
       </form>
       <p class="err center" id="home-err">${esc(homeError)}</p>
     </div>
-    ${updatesHTML()}`;
+    ${updatesHTML()}
+    ${feedbackLink()}`;
 }
 // アップデート情報（updates.json の新しい順）
 let updates = null;
@@ -1067,6 +1123,7 @@ function lobbyHTML(){
       ${settingsHTML()}
     </section>
     <p class="hint center">開始後、形式・モード・ジャンルなどのルールを参加者の投票で決めます。</p>
+    ${feedbackLink()}
     ${actionbar(host
       ? `<button class="btn hi block" data-act="startVote">開始する</button>`
       : `<p class="waiting">ルーム主の開始を待っています…</p>`)}
@@ -1363,10 +1420,10 @@ const FIN_TEAM = { rise: 1200, riseEnd: 5600, hold: 7400, win: 9400, rest: 10800
 let finalStart = 0, finalRAF = 0;
 function finalElapsed(){ return reducedMotion ? 999999 : Date.now() - finalStart; }
 function finalButtonsHTML(){
-  return isHost()
+  return feedbackLink() + (isHost()
     ? `<details class="card more"><summary>問題数・制限時間・NPCを変更</summary><div class="stack" style="margin-top:12px">${settingsHTML()}${npcHTML()}</div></details>
        ${actionbar(`<button class="btn ghost" data-act="lobby">ロビーへ</button><button class="btn hi grow" data-act="startVote">もう一度プレイ</button>`)}`
-    : actionbar(`<p class="waiting">ルーム主が次のゲームを開始するまでお待ちください</p>`);
+    : actionbar(`<p class="waiting">ルーム主が次のゲームを開始するまでお待ちください</p>`));
 }
 function rankNumber(x){ return ranking().filter((y) => y.score > x.score).length + 1; }
 function finalHTML(){
@@ -1566,6 +1623,9 @@ document.addEventListener('click', async (e) => {
       break;
     }
     case 'mute': sfx.toggle(); renderHeader(); break;
+    case 'fbOpen': openFeedback(); break;
+    case 'fbClose': closeFeedback(); break;
+    case 'fbKind': fbKind = v; document.querySelectorAll('[data-act=fbKind]').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.v === v))); break;
     case 'togglePicker': { const nm = $('#name'); const keep = nm ? nm.value : null; pickerOpen = !pickerOpen; render(); if(keep != null && $('#name')) $('#name').value = keep; break; }
     case 'pickAv': case 'pickCol': {
       if(act === 'pickAv'){ myAvatar = +v; store('quiz.avatar', v); } else { myColor = +v; store('quiz.color', v); }
