@@ -680,7 +680,7 @@ async function sendFeedback(item) {
     const loc = res.headers.get('location') || '';
     let why = '';
     if ((res.status >= 300 && res.status < 400 && /accounts\.google\.com|ServiceLogin/.test(loc)) || res.status === 401 || res.status === 403) {
-      why = 'フォームがログイン必須になっています。フォームの「設定」で「（学校や組織名）のユーザーに限定する」と「メールアドレスを収集する」をオフにしてください。';
+      why = 'フォームが回答を受け付けていません。フォーム右上の「公開（Publish）」を押して公開し、回答者を「リンクを知っている全員」にしてください（「メールアドレスを収集する」もオフに）。';
     } else if (res.status === 400) {
       why = '質問の形式が合っていません。4つの質問をすべて「記述式」（内容だけ「段落」）にして、「必須」をオフにしてください。';
     } else if (res.status === 404) {

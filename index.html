@@ -81,7 +81,8 @@ input.code{font-family:var(--dot);font-size:1.8rem;letter-spacing:.3em;text-alig
 .share{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:center;max-width:100%}
 .share code{font-size:.85rem;background:var(--surface);border:1.5px solid var(--line);border-radius:8px;padding:4px 8px;max-width:100%;overflow-wrap:anywhere}
 .chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
-.chip{padding:6px 14px;border-radius:999px;background:var(--surface);border:2px solid var(--line);font-weight:700;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;animation:pop .25s ease-out}
+.chip{padding:6px 14px;border-radius:999px;background:var(--surface);border:2px solid var(--line);font-weight:700;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip.enter{animation:pop .25s ease-out}
 .chip.me{border-color:var(--hi);background:var(--hi);color:var(--on-hi)}
 .chip.off{opacity:.45}
 .chip.ready{border-color:var(--good);color:var(--good)}
@@ -138,9 +139,10 @@ button.ans:disabled{cursor:default}
 @keyframes flash{from{opacity:1}to{opacity:0}}
 #stage.shake{animation:shakeX .42s ease-in-out}
 @keyframes shakeX{0%,100%{transform:none}20%{transform:translateX(-8px)}40%{transform:translateX(7px)}60%{transform:translateX(-5px)}80%{transform:translateX(3px)}}
-.verdict.ok{animation:verdictpop .45s cubic-bezier(.2,1.6,.4,1)}
+.verdict.ok.enter{animation:verdictpop .45s cubic-bezier(.2,1.6,.4,1)}
 @keyframes verdictpop{0%{transform:scale(.6);opacity:0}100%{transform:none;opacity:1}}
-.combo{display:inline-flex;align-items:center;gap:8px;padding:6px 14px;border-radius:999px;background:linear-gradient(90deg,var(--a1),var(--a3));color:#fff;font-weight:700;animation:combopop .5s cubic-bezier(.2,1.6,.4,1) .25s both}
+.combo{display:inline-flex;align-items:center;gap:8px;padding:6px 14px;border-radius:999px;background:linear-gradient(90deg,var(--a1),var(--a3));color:#fff;font-weight:700}
+.combo.enter{animation:combopop .5s cubic-bezier(.2,1.6,.4,1) .25s both}
 .combo b{font-family:var(--dot);font-weight:400}
 @keyframes combopop{0%{transform:scale(.3) rotate(-8deg);opacity:0}100%{transform:none;opacity:1}}
 .qhead .row{min-width:0}
@@ -150,7 +152,7 @@ button.ans:disabled{cursor:default}
 @keyframes tpulse{0%{transform:scale(1.35)}100%{transform:none}}
 .rank .mv{margin-left:6px;font-family:var(--dot);font-size:.85rem}
 .rank .mv.up{color:var(--good)} .rank .mv.down{color:var(--bad)}
-.rank li.rise{animation:rise .5s ease-out}
+.rank li.rise.enter{animation:rise .5s ease-out}
 @keyframes rise{from{transform:translateY(10px);background:var(--hi)}to{transform:none}}
 .rank .fire{margin-left:6px;padding:0 6px;border-radius:6px;background:var(--a1);color:#fff;font-size:.7rem;vertical-align:middle}
 button.ans:active:not(:disabled){transform:translateY(3px) scale(.97)}
@@ -232,11 +234,12 @@ button.ans:active:not(:disabled){transform:translateY(3px) scale(.97)}
 .secret{display:flex;flex-direction:column;align-items:center;gap:4px;padding:18px;border-radius:16px;border:2px dashed var(--line);background:var(--surface);text-align:center}
 .secret b{font-family:var(--display);font-weight:400;font-size:1.8rem;letter-spacing:.2em}
 .secret span{color:var(--muted);font-size:.9rem}
-.stretch{margin:0;padding:8px 12px;border-radius:12px;background:var(--ink);color:var(--hi);text-align:center;font-weight:700;animation:fadeup .4s ease-out}
+.stretch{margin:0;padding:8px 12px;border-radius:12px;background:var(--ink);color:var(--hi);text-align:center;font-weight:700}
+.stretch.enter{animation:fadeup .4s ease-out}
 .pod .blk{transition:filter .3s}
 .pod:not(.shown) .blk{filter:grayscale(1) brightness(.85)}
 .pod:not(.shown) .nm{color:var(--muted)}
-.pod.shown{animation:podpop .45s ease-out}
+.pod.shown.enter{animation:podpop .45s ease-out}
 @keyframes podpop{0%{transform:translateY(12px) scale(.9);opacity:.3}60%{transform:translateY(-4px) scale(1.05);opacity:1}100%{transform:none}}
 .drum{margin:0;text-align:center;font-family:var(--display);font-size:clamp(1.6rem,7vw,2.4rem);animation:drum .5s ease-in-out infinite alternate}
 @keyframes drum{from{transform:scale(1)}to{transform:scale(1.08)}}
@@ -350,11 +353,12 @@ button.ans:active:not(:disabled){transform:translateY(3px) scale(.97)}
 .slot .window{width:100%;min-height:3.4em;display:grid;place-items:center;border-radius:10px;background:var(--ink);color:var(--bg);padding:6px 4px;overflow:hidden}
 .slot .reel{font-family:var(--display);font-weight:400;font-size:clamp(.95rem,4vw,1.35rem);line-height:1.25;overflow-wrap:anywhere}
 .slot:not(.stopped) .reel{opacity:.75;filter:blur(.4px)}
-.slot.stopped{border-color:var(--hi);animation:slotstop .35s ease-out}
+.slot.stopped{border-color:var(--hi)}
+.slot.stopped.enter{animation:slotstop .35s ease-out}
 .slot.stopped .window{background:var(--hi);color:var(--on-hi)}
 .slot .votes{font-family:var(--dot)}
 @keyframes slotstop{0%{transform:scale(1)}40%{transform:scale(1.08)}100%{transform:scale(1)}}
-.reveal-in{animation:fadeup .4s ease-out}
+.reveal-in.enter{animation:fadeup .4s ease-out}
 @keyframes fadeup{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 
 /* teams */
@@ -927,6 +931,7 @@ function render(){
   if(!session){ stage.innerHTML = homeHTML(); bindHome(); return; }
   if(!state){ stage.innerHTML = `<div class="marquee"><p class="muted">接続中…</p></div>`; return; }
   const ph = state.phase;
+  if(ph !== lastPhase){ if(ph === 'decided' || ph === 'lobby') gameSeq++; lastPhase = ph; }
   // タイピング中は入力欄を作り直さない（日本語入力の変換が途中で消えないように）
   if(ph === 'question' && state.question.typing){
     const key = 'q' + state.question.index + ':' + (questionLocked() ? 1 : 0);
@@ -1065,7 +1070,7 @@ const npcTag = (p) => p.bot ? ` <span class="npc">NPC・${esc(p.level)}</span>` 
 const teamDot = (p) => p.team && isTeam() ? `<span class="tdot ${p.team}" aria-label="${TEAM_NAME[p.team]}"></span>` : '';
 function chipsHTML(){
   const canRemove = isHost() && (state.phase === 'lobby' || state.phase === 'final');
-  const chip = (p) => `<span class="chip${p.id === me().id ? ' me' : ''}${p.connected ? '' : ' off'}${p.bot ? ' bot' : ''}">${av(p)}<span class="cn">${esc(p.name)}</span>${p.isHost ? '<span class="crown">ルーム主</span>' : ''}${npcTag(p)}` +
+  const chip = (p) => `<span class="chip${enter('chip:' + p.id)}${p.id === me().id ? ' me' : ''}${p.connected ? '' : ' off'}${p.bot ? ' bot' : ''}">${av(p)}<span class="cn">${esc(p.name)}</span>${p.isHost ? '<span class="crown">ルーム主</span>' : ''}${npcTag(p)}` +
     (p.bot && canRemove ? `<button class="x" data-act="removeBot" data-v="${esc(p.id)}" aria-label="${esc(p.name)}を外す">×</button>` : '') + `</span>`;
   const players = state.players.filter((p) => !p.spectator), watchers = state.players.filter((p) => p.spectator);
   return '<div class="chips">' + players.map(chip).join('') + '</div>' +
@@ -1210,7 +1215,7 @@ function decidedHTML(){
   const el = decidedElapsed();
   const reelHTML = reels.map((r, i) => {
     const stopped = el >= SLOT_STOPS[i];
-    return `<div class="slot${stopped ? ' stopped' : ''}" id="slot-${i}">
+    return `<div class="slot${stopped ? ' stopped' + enter('slot:' + i) : ''}" id="slot-${i}">
       <small>${r.label}</small>
       <div class="window"><b class="reel" id="reel-${i}">${esc(stopped ? r.result : spinningName(i, el))}</b></div>
       <small class="votes" id="votes-${i}">${stopped ? r.n + '票' : '…'}</small>
@@ -1220,7 +1225,7 @@ function decidedHTML(){
   return `<div class="stack">
     <div class="marquee" style="padding-bottom:0"><h1 id="dec-title">${el >= SLOT_STOPS[SLOT_STOPS.length - 1] ? 'ルール決定！' : 'ルール発表…'}</h1></div>
     <div class="slots">${reelHTML}</div>
-    <div class="stack reveal-in" id="dec-after" ${after ? '' : 'hidden'}>
+    <div class="stack reveal-in${after ? enter('dec-after') : ''}" id="dec-after" ${after ? '' : 'hidden'}>
       <div class="rules">
         <div class="rule"><small>問題数</small><b>${c.count}問</b><small>ルーム主が決定</small></div>
         <div class="rule"><small>制限時間</small><b>${c.time}秒</b><small>ルーム主が決定</small></div>
@@ -1230,7 +1235,7 @@ function decidedHTML(){
       ${d.forcedSolo ? '<p class="center muted">チーム戦は2人以上で行うため、今回は個人戦になりました。</p>' : ''}
       ${isBuzz() ? '<p class="center muted">早押し：最初に正解した人だけが1000点を獲得。誤答（お手つき）すると、その問題には回答できません。</p>' : '<p class="center muted">全員が回答できます。早く正解するほど高得点です。</p>'}
     </div>
-    ${isTeam() ? `<div class="stack reveal-in" id="dec-teams" ${teams ? '' : 'hidden'}><h3 class="center">チーム発表</h3>${teamsHTML()}<p class="center muted" style="font-size:.85rem">チームの得点は、メンバーの平均点です。</p></div>` : ''}
+    ${isTeam() ? `<div class="stack reveal-in${teams ? enter('dec-teams') : ''}" id="dec-teams" ${teams ? '' : 'hidden'}><h3 class="center">チーム発表</h3>${teamsHTML()}<p class="center muted" style="font-size:.85rem">チームの得点は、メンバーの平均点です。</p></div>` : ''}
     <p class="center"><span class="muted">開始まで</span> <span class="timer" id="timer" style="font-size:2rem">${sec}</span></p>
   </div>`;
 }
@@ -1257,7 +1262,7 @@ function spinSlots(){
     const reel = document.getElementById('reel-' + i), box = document.getElementById('slot-' + i), v = document.getElementById('votes-' + i);
     if(!reel || !box) return;
     if(el >= SLOT_STOPS[i] || names.length < 2){
-      if(!box.classList.contains('stopped')){ box.classList.add('stopped'); if(el - SLOT_STOPS[i] < 600) sfx.stop(); reel.textContent = results[i]; if(v) v.textContent = counts[i] + '票'; }
+      if(!box.classList.contains('stopped')){ box.classList.add('stopped'); if(fxOnce('slot:' + i)) box.classList.add('enter'); if(el - SLOT_STOPS[i] < 600) sfx.stop(); reel.textContent = results[i]; if(v) v.textContent = counts[i] + '票'; }
       return;
     }
     const nm = spinningName(i, el);
@@ -1265,8 +1270,8 @@ function spinSlots(){
   });
   const t = document.getElementById('dec-title');
   if(t && el >= SLOT_STOPS[SLOT_STOPS.length - 1]) t.textContent = 'ルール決定！';
-  const a = document.getElementById('dec-after'); if(a && el >= AFTER_SLOTS) a.hidden = false;
-  const tm = document.getElementById('dec-teams'); if(tm && el >= TEAM_SHOW) tm.hidden = false;
+  const a = document.getElementById('dec-after'); if(a && el >= AFTER_SLOTS && a.hidden){ a.hidden = false; if(fxOnce('dec-after')) a.classList.add('enter'); }
+  const tm = document.getElementById('dec-teams'); if(tm && el >= TEAM_SHOW && tm.hidden){ tm.hidden = false; if(fxOnce('dec-teams')) tm.classList.add('enter'); }
   if(el < TEAM_SHOW + 100) slotRAF = requestAnimationFrame(spinSlots);
 }
 
@@ -1328,11 +1333,25 @@ function typingHTML(locked){
     </form>
     <p class="muted center" style="font-size:.85rem">ひらがな・カタカナ・漢字のどれで入力しても正解になります。</p>`;
 }
+// 登場アニメーションを1回だけ再生するためのしくみ。
+// 画面はだれかが回答・チャットするたびに描き直されるので、そのたびにアニメーションが
+// 最初から再生されてチカチカしないよう、一度再生したものを覚えておく
+const playedFx = new Set();
+let gameSeq = 0, lastPhase = null;
+function fxOnce(key){
+  const k = (state ? state.code : '') + '#' + gameSeq + ':' + key;
+  if(playedFx.has(k)) return false;
+  playedFx.add(k); return true;
+}
+const enter = (key) => fxOnce(key) ? ' enter' : '';
 function questionHTML(){
   const q = state.question;
   const locked = questionLocked();
-  const lastStretch = state.hidden && q.index === state.hideFrom
-    ? `<p class="stretch">ここから終盤です。順位と合計点は結果発表まで非表示になります</p>` : '';
+  let lastStretch = '';
+  if(state.hidden && q.index === state.hideFrom){
+    // 画面を描き直すたびにアニメーションが再生されてチカチカしないよう、最初の1回だけ動かす
+    lastStretch = `<p class="stretch${enter('stretch:' + q.index)}">ここから終盤です。順位と合計点は結果発表まで非表示になります</p>`;
+  }
   return `<div class="stack">
     ${lastStretch}
     ${qHead()}
@@ -1360,7 +1379,7 @@ function rankHTML(limit){
     const dlt = state.phase === 'reveal' ? (rankDelta[x.id] || 0) : 0;
     const arrow = dlt > 0 ? `<span class="mv up">↑${dlt}</span>` : dlt < 0 ? `<span class="mv down">↓${-dlt}</span>` : '';
     const fire = state.phase === 'reveal' && x.streak >= 3 ? `<span class="fire">${x.streak}連続</span>` : '';
-    return `<li class="${x.id === me().id ? 'me' : ''}${dlt > 0 ? ' rise' : ''}"><span class="pos">${pos}</span><span class="nm">${av(x)}${teamDot(x)}${esc(x.name)}${npcTag(x)}${fire}${arrow}</span><span class="gain">${x.gain && state.phase !== 'final' ? '+' + x.gain : ''}</span><span class="sc">${x.score}</span></li>`;
+    return `<li class="${x.id === me().id ? 'me' : ''}${dlt > 0 ? ' rise' + (revealFresh ? ' enter' : '') : ''}"><span class="pos">${pos}</span><span class="nm">${av(x)}${teamDot(x)}${esc(x.name)}${npcTag(x)}${fire}${arrow}</span><span class="gain">${x.gain && state.phase !== 'final' ? '+' + x.gain : ''}</span><span class="sc">${x.score}</span></li>`;
   };
   const top = limit ? r.slice(0, limit) : r;
   const meRow = limit && !top.some((x) => x.id === me().id) ? r.find((x) => x.id === me().id) : null;
@@ -1388,8 +1407,10 @@ function teamStripHTML(){
     <span class="tn">${esc(t.name)}${me().team === t.id ? '（あなた）' : ''}</span>
     <b>${t.score == null ? '？？？' : t.score}</b>${t.gain ? `<small>+${t.gain}</small>` : ''}</div>`).join('')}</div>`;
 }
+let revealFresh = false;   // この答え合わせ画面を初めて描くときだけ true
 function revealHTML(){
   updateRankDelta();
+  revealFresh = fxOnce('reveal:' + state.question.index);
   const q = state.question, rv = state.reveal, picked = state.myAnswer;
   const mine = state.players.find((p) => p.id === me().id) || {score:0};
   const last = q.index + 1 >= q.total;
@@ -1416,9 +1437,9 @@ function revealHTML(){
   return `<div class="stack">
     ${qHead()}
     <div class="result ${cls}">
-      <div class="verdict ${cls}" style="${verdict.length > 8 ? 'font-size:clamp(1.5rem,7vw,2.4rem)' : ''}">${verdict}</div>
+      <div class="verdict ${cls}${revealFresh ? ' enter' : ''}" style="${verdict.length > 8 ? 'font-size:clamp(1.5rem,7vw,2.4rem)' : ''}">${verdict}</div>
       ${rv.myGain ? `<div class="pts" id="gainpts" data-to="${rv.myGain}" data-key="${esc(state.code)}:${q.index}">+${rv.myGain}</div>` : ''}
-      ${rv.myCorrect && rv.myStreak >= 2 ? `<div class="combo"><span>${rv.myStreak}連続正解！</span><b>ボーナス +${rv.myBonus}</b></div>` : ''}
+      ${rv.myCorrect && rv.myStreak >= 2 ? `<div class="combo${revealFresh ? ' enter' : ''}"><span>${rv.myStreak}連続正解！</span><b>ボーナス +${rv.myBonus}</b></div>` : ''}
       ${sub}
       ${isSpectator() ? '' : `<p class="hint">${state.hidden ? '合計点と順位は結果発表まで非表示' : `合計 ${mine.score}点 ・ いま ${myPos()}位`}</p>`}
     </div>
@@ -1454,7 +1475,7 @@ function soloFinalHTML(){
   const pod = (x, cls, at) => {
     if(!x) return `<div class="pod ${cls}"></div>`;
     const shown = el >= at;
-    return `<div class="pod ${cls}${shown ? ' shown' : ''}" data-at="${at}" data-name="${esc(x.name)}" data-score="${x.score}点" data-av="${esc(AVATARS[x.avatar || 0])}" data-col="${x.color || 0}">
+    return `<div class="pod ${cls}${shown ? ' shown' + enter('pod:' + cls) : ''}" data-at="${at}" data-name="${esc(x.name)}" data-score="${x.score}点" data-av="${esc(AVATARS[x.avatar || 0])}" data-col="${x.color || 0}">
       ${shown ? av(x, true) : '<span class="av big blank" aria-hidden="true">？</span>'}<span class="nm">${shown ? esc(x.name) : '？？？'}</span><span class="sc">${shown ? x.score + '点' : '&nbsp;'}</span>
       <div class="blk">${rankNumber(x)}</div></div>`;
   };
@@ -1462,7 +1483,7 @@ function soloFinalHTML(){
     <div class="marquee"><h1>結果発表</h1></div>
     <div class="podium">${pod(r[1], 'p2', T.p2)}${pod(r[0], 'p1', T.p1)}${pod(r[2], 'p3', T.p3)}</div>
     <p class="drum" data-from="${T.drum}" data-until="${T.p1}" ${el >= T.drum && el < T.p1 ? '' : 'hidden'}>1位は……</p>
-    <div class="stack reveal-in" data-at="${T.rest}" ${el >= T.rest ? '' : 'hidden'}>
+    <div class="stack reveal-in${el >= T.rest ? enter('fin-rest') : ''}" data-at="${T.rest}" ${el >= T.rest ? '' : 'hidden'}>
       ${isSpectator() ? '' : `<p class="pts center">あなたは ${myPos()}位</p>`}
       ${reactsHTML()}
       ${rankHTML()}
@@ -1477,17 +1498,18 @@ function teamFinalHTML(){
   const winner = a.score === b.score ? null : (a.score > b.score ? a : b);
   const head = winner ? `${esc(winner.name)}の勝利！` : '引き分け！';
   const mine = me().team && winner ? (me().team === winner.id ? 'あなたのチームの勝利です' : 'あなたのチームの負けです') : '';
-  const bars = state.teams.map((t) => `<div class="tcol ${t.id}${done && winner && winner.id === t.id ? ' win' : ''}">
-      <span class="num" id="tnum-${t.id}">0</span>
-      <div class="track"><div class="fill" id="tfill-${t.id}"></div></div>
+  const bars = state.teams.map((t) => { const v = teamBarValue(t, el); return `<div class="tcol ${t.id}${done && winner && winner.id === t.id ? ' win' : ''}">
+      <span class="num" id="tnum-${t.id}">${v.n}</span>
+      <div class="track"><div class="fill" id="tfill-${t.id}" style="height:${v.h * 100}%"></div></div>
       <span class="tname">${esc(t.name)}${me().team === t.id ? '<small>（あなた）</small>' : ''}</span>
-    </div>`).join('');
+    </div>`; }).join('');
+  const hold = el >= T.riseEnd && el < T.win;
   return `<div class="stack final">
     <div class="marquee"><h1>結果発表</h1></div>
-    <div class="tbars${done && winner ? ' decided' : ''}" id="tbars">${bars}</div>
-    <p class="banner tmsg" id="tmsg">${done ? head : el >= T.riseEnd ? '勝つのは…' : '集計中…'}</p>
+    <div class="tbars${done && winner ? ' decided' : ''}${hold ? ' hold' : ''}" id="tbars">${bars}</div>
+    <p class="banner tmsg${hold ? ' shake' : ''}" id="tmsg">${done ? head : el >= T.riseEnd ? '勝つのは…' : '集計中…'}</p>
     <p class="center muted" id="tmine" ${done && mine ? '' : 'hidden'}>${mine}</p>
-    <div class="stack reveal-in" data-at="${T.rest}" ${el >= T.rest ? '' : 'hidden'}>
+    <div class="stack reveal-in${el >= T.rest ? enter('fin-rest') : ''}" data-at="${T.rest}" ${el >= T.rest ? '' : 'hidden'}>
       <h3>個人の成績</h3>
       ${isSpectator() ? '' : `<p class="pts center">あなたは ${myPos()}位</p>`}
       ${reactsHTML()}
@@ -1531,12 +1553,15 @@ function animateFinal(){
     const on = el >= +n.dataset.at;
     if(n.classList.contains('pod')){
       if(on && !n.classList.contains('shown')){
-        n.classList.add('shown');
+        n.classList.add('shown'); if(fxOnce('pod:' + [...n.classList].find((c) => /^p\d$/.test(c)))) n.classList.add('enter');
         n.querySelector('.nm').textContent = n.dataset.name;
         const a = n.querySelector('.av'); if(a){ a.className = 'av big c' + n.dataset.col; a.textContent = n.dataset.av; }
         n.querySelector('.sc').textContent = n.dataset.score;
       }
-    } else if(n.hidden === on) n.hidden = !on;
+    } else if(n.hidden === on){
+      n.hidden = !on;
+      if(on && n.classList.contains('reveal-in') && fxOnce('fin-rest')) n.classList.add('enter');
+    }
   });
   const drum = document.querySelector('.final .drum');
   if(drum) drum.hidden = !(el >= +drum.dataset.from && el < +drum.dataset.until);
