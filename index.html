@@ -43,6 +43,11 @@ button:focus-visible,input:focus-visible,a:focus-visible{outline:3px solid var(-
 .pill .dot{width:8px;height:8px;border-radius:50%;background:var(--good)}
 .pill.off .dot{background:var(--bad)}
 .pill.host{background:var(--hi);color:var(--on-hi);border-color:var(--hi)}
+.hbtn{display:inline-flex;align-items:center;gap:5px;min-height:32px;padding:4px 12px;border-radius:999px;border:2px solid var(--ink);background:var(--surface);color:var(--ink);font-size:.82rem;font-weight:700;line-height:1;white-space:nowrap}
+.hbtn:active{transform:translateY(1px)}
+.hbtn.muted{border-color:var(--line);color:var(--muted)}
+.hbtn.leave{border-color:var(--bad);color:var(--bad)}
+.hbtn.leave.sure{background:var(--bad);color:var(--surface)}
 
 .btn{border:0;border-radius:14px;padding:12px 22px;font-weight:700;background:var(--ink);color:var(--bg);font-size:1rem;transition:transform .08s}
 .btn:active{transform:translateY(2px)}
@@ -601,17 +606,26 @@ const isTeam = () => !!(state && state.config && state.config.format === 'team' 
 /* ---------- render ---------- */
 function toast(msg){ const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast._t); toast._t = setTimeout(() => t.hidden = true, 3000); }
 
+// 音のオン・オフボタン（スピーカーの絵つき）
+function muteButtonHTML(){
+  const on = !sfx.muted;
+  const icon = `<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/>${on
+    ? '<path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'
+    : '<path d="M16.5 9.5l5 5M21.5 9.5l-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'}</svg>`;
+  return `<button type="button" class="hbtn${on ? '' : ' muted'}" data-act="mute" aria-pressed="${on}" aria-label="効果音を${on ? 'オフ' : 'オン'}にする">${icon}<span>${on ? '音オン' : '音オフ'}</span></button>`;
+}
+let leaveConfirmUntil = 0;   // 「本当に退出する」を出している期限
 function renderHeader(){
   const who = $('#who');
-  if(!session || !state){ who.innerHTML = ''; return; }
+  if(!session || !state){ who.innerHTML = muteButtonHTML(); return; }
   const n = state.players.filter((p) => !p.bot && p.connected).length;
   // ルール発表（スロット）中はチームを見せない
   const team = me().team && isTeam() && state.phase !== 'decided' ? `<span class="myteam ${me().team}">${TEAM_NAME[me().team]}</span>` : '';
   who.innerHTML =
     `<span class="pill${online ? '' : ' off'}"><span class="dot"></span>${online ? '参加 ' + n + '人' : '再接続中…'}</span>` + team +
     `<span class="pill${isHost() ? ' host' : ''}">${isHost() ? 'ルーム主・' : ''}${esc(me().name)}</span>` +
-    `<button class="link" data-act="mute" aria-pressed="${!sfx.muted}">${sfx.muted ? '音オフ' : '音オン'}</button>` +
-    `<button class="link" data-act="leave">退出</button>`;
+    muteButtonHTML() +
+    `<button type="button" class="hbtn leave${Date.now() < leaveConfirmUntil ? ' sure' : ''}" data-act="leave">${Date.now() < leaveConfirmUntil ? '本当に退出する' : '退出'}</button>`;
 }
 
 function render(){
@@ -1304,7 +1318,9 @@ document.addEventListener('click', async (e) => {
       break;
     }
     case 'leave': {
-      if(b.dataset.sure !== '1'){ b.dataset.sure = '1'; b.textContent = '本当に退出する'; setTimeout(() => { if(b.isConnected){ b.dataset.sure = ''; b.textContent = '退出'; } }, 3000); return; }
+      // 1回目は確認。3秒以内にもう一度押すと退出
+      if(Date.now() >= leaveConfirmUntil){ leaveConfirmUntil = Date.now() + 3000; renderHeader(); setTimeout(renderHeader, 3050); return; }
+      leaveConfirmUntil = 0;
       await api('leave'); if(es) es.close(); es = null; leaveLocal('');
       break;
     }
