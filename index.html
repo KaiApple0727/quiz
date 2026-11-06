@@ -346,18 +346,38 @@ button.ans:active:not(:disabled){transform:translateY(3px) scale(.97)}
 .rule small{color:var(--muted);font-size:.8rem}
 
 /* slots */
-.slots{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
+.slots{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px}
 @media (max-width:700px){.slots{grid-template-columns:repeat(3,minmax(0,1fr))}}
 .slot{display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 8px;border-radius:16px;background:var(--surface);border:2px solid var(--line);min-width:0;text-align:center}
 .slot small{color:var(--muted);font-size:.8rem}
 .slot .window{width:100%;min-height:3.4em;display:grid;place-items:center;border-radius:10px;background:var(--ink);color:var(--bg);padding:6px 4px;overflow:hidden}
-.slot .reel{font-family:var(--display);font-weight:400;font-size:clamp(.95rem,4vw,1.35rem);line-height:1.25;overflow-wrap:anywhere}
+.slot .reel{word-break:keep-all;font-family:var(--display);font-weight:400;font-size:clamp(.95rem,4vw,1.35rem);line-height:1.25;overflow-wrap:anywhere}
 .slot:not(.stopped) .reel{opacity:.75;filter:blur(.4px)}
 .slot.stopped{border-color:var(--hi)}
 .slot.stopped.enter{animation:slotstop .35s ease-out}
 .slot.stopped .window{background:var(--hi);color:var(--on-hi)}
 .slot .votes{font-family:var(--dot)}
 @keyframes slotstop{0%{transform:scale(1)}40%{transform:scale(1.08)}100%{transform:scale(1)}}
+/* イベント問題・ベット・多数派 */
+.evbanner{display:flex;flex-direction:column;align-items:center;gap:2px;padding:10px 14px;border-radius:14px;background:linear-gradient(90deg,var(--a1),var(--a3));color:#fff;text-align:center}
+.evbanner b{font-family:var(--display);font-weight:400;font-size:1.25rem;letter-spacing:.04em}
+.evbanner small{font-size:.85rem;opacity:.95}
+.evbanner.enter{animation:evpop .55s cubic-bezier(.2,1.6,.4,1)}
+@keyframes evpop{0%{transform:scale(.6) rotate(-3deg);opacity:0}100%{transform:none;opacity:1}}
+.tag.maj{background:var(--ink);color:var(--bg);border-color:transparent}
+.tag.ev{background:linear-gradient(90deg,var(--a1),var(--a3));color:#fff;border-color:transparent}
+.bets{display:flex;gap:6px;align-items:center;justify-content:center;flex-wrap:wrap}
+.bets .lbl{font-size:.8rem;color:var(--muted);font-weight:700;margin-right:2px}
+.bet{border:2px solid var(--line);background:var(--surface);color:var(--ink);border-radius:14px;padding:5px 14px;min-width:76px;font-weight:700;font-size:.95rem;line-height:1.2}
+.bet small{display:block;font-weight:400;font-size:.68rem;opacity:.75}
+.bet[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.bet:disabled:not([aria-pressed="true"]){opacity:.4}
+.betx{margin-left:6px;padding:0 6px;border-radius:6px;background:var(--ink);color:var(--bg);font-size:.7rem;vertical-align:middle}
+.rank .gain.neg,.pts.neg,.tstrip small.neg{color:var(--bad)}
+.ptsnote{margin:0;font-size:.85rem;color:var(--muted);text-align:center}
+.alist.maj .arow.right .t::after{content:" 多数派"}
+.arow.nol{grid-template-columns:minmax(0,1fr) 64px 2.6em}
+.arow.nol .t{grid-column:auto!important}
 .reveal-in.enter{animation:fadeup .4s ease-out}
 @keyframes fadeup{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 
@@ -617,6 +637,7 @@ const sfx = (() => {
     drum(){ for(let i = 0; i < 22; i++) noise(i * 0.09, 0.08, 0.05 + i * 0.006); },
     fanfare(){ [523, 659, 784, 1046.5].forEach((f, i) => tone(f, i * 0.12, 0.22, 'triangle', 0.16)); tone(1046.5, 0.5, 0.6, 'sine', 0.14); tone(1318.5, 0.5, 0.6, 'sine', 0.1); },
     pop(){ tone(1200, 0, 0.07, 'sine', 0.07, 1700); },
+    event(){ [660, 880, 1175, 1568].forEach((f, i) => tone(f, i * 0.07, 0.16, 'square', 0.06)); },
   };
 })();
 document.addEventListener('pointerdown', () => sfx.unlock(), {passive: true});
@@ -636,7 +657,7 @@ let revealFxKey = null, buzzFxKey = null, missFxKey = null, questionFxKey = null
 function runFx(prev, cur){
   if(!cur || !cur.question) return;
   const key = cur.code + ':' + cur.question.index + ':' + (cur.config ? cur.config.genre : '');
-  if(cur.phase === 'question' && questionFxKey !== key){ questionFxKey = key; sfx.question(); }
+  if(cur.phase === 'question' && questionFxKey !== key){ questionFxKey = key; if(cur.question.event) sfx.event(); else sfx.question(); }
   if(cur.phase === 'question' && cur.buzz){
     if(cur.buzz.winnerName && buzzFxKey !== key && cur.buzz.winnerName !== cur.me.name){ buzzFxKey = key; sfx.buzz(); }
     if(cur.buzz.myMissed && missFxKey !== key){ missFxKey = key; sfx.wrong(); shake(); vibrate(90); }
@@ -657,13 +678,13 @@ let countedKey = null;
 function countUp(){
   const el = document.getElementById('gainpts'); if(!el) return;
   const to = +el.dataset.to, key = el.dataset.key;
-  if(countedKey === key || reducedMotion){ el.textContent = '+' + to; return; }
+  if(countedKey === key || reducedMotion){ el.textContent = signed(to); return; }
   countedKey = key;
   const t0 = performance.now(), dur = 650;
   (function step(now){
     const k = Math.min(1, (now - t0) / dur), v = Math.round(to * (1 - Math.pow(1 - k, 3)));
     const cur = document.getElementById('gainpts');
-    if(cur) cur.textContent = '+' + v;
+    if(cur) cur.textContent = signed(v);
     if(k < 1) requestAnimationFrame(step);
   })(t0);
 }
@@ -891,6 +912,8 @@ const me = () => state && state.me;
 const isHost = () => !!(state && state.me && state.me.isHost);
 const remainingMs = () => Math.max(0, deadline - Date.now());
 const isBuzz = () => !!(state && state.config && state.config.mode === 'buzz');
+// 増えた点・減った点を「+500」「−500」の形にする
+const signed = (n) => (n < 0 ? '−' + (-n) : '+' + n);
 const isTeam = () => !!(state && state.config && state.config.format === 'team' && state.teams);
 
 /* ---------- render ---------- */
@@ -1105,7 +1128,7 @@ function teamsHTML(opts){
     const names = t.members.map((id) => (state.players.find((p) => p.id === id) || {}).name).filter(Boolean);
     return `<div class="team ${t.id}${o.scores && !tied && t.score === lead ? ' lead' : ''}">
       <span class="tn">${esc(t.name)}${me().team === t.id ? '（あなた）' : ''}</span>
-      ${o.scores ? (hide ? '<span class="ts">？？？</span>' : `<span class="ts">${t.score}</span>${o.gain && t.gain ? `<span class="tg">+${t.gain}</span>` : ''}`) : ''}
+      ${o.scores ? (hide ? '<span class="ts">？？？</span>' : `<span class="ts">${t.score}</span>${o.gain && t.gain ? `<span class="tg">${signed(t.gain)}</span>` : ''}`) : ''}
       <span class="tm">${names.map(esc).join('、') || 'メンバーなし'}</span>
     </div>`;
   }).join('') + '</div>';
@@ -1114,7 +1137,9 @@ function tagsHTML(){
   if(!state.config) return '';
   const c = state.config;
   const typingTag = state.question && state.question.typing ? ' <span class="tag">タイピング</span>' : '';
-  return `<span class="tag">${esc(c.genreName)}</span>${typingTag}${c.leveled ? ` <span class="tag">${esc(c.difficultyName)}</span>` : ''}${isBuzz() ? ' <span class="tag">早押し</span>' : ''}`;
+  const ev = state.question && state.question.event ? ` <span class="tag ev">${esc(state.question.event.name)}</span>` : '';
+  if(state.question && state.question.majority) return `<span class="tag maj">多数派問題</span>${ev}`;
+  return `<span class="tag">${esc(c.genreName)}</span>${ev}${typingTag}${c.leveled ? ` <span class="tag">${esc(c.difficultyName)}</span>` : ''}${isBuzz() ? ' <span class="tag">早押し</span>' : ''}`;
 }
 
 /* lobby */
@@ -1159,7 +1184,7 @@ function voteHTML(){
   const v = state.vote;
   const allMine = v.ballot.every((b) => v.mine[b.key]);
   const secs = v.ballot.map((b) => {
-    const cls = b.key === 'format' || b.key === 'mode' ? 'two' : (b.key === 'difficulty' || b.key === 'answer') ? 'three' : 'genre';
+    const cls = b.key === 'format' || b.key === 'extra' ? 'two' : (b.key === 'mode' || b.key === 'difficulty' || b.key === 'answer') ? 'three' : 'genre';
     const showNote = b.key !== 'genre';
     return `<div class="vote-sec">
       <span class="lbl">${esc(b.label)}</span>
@@ -1190,10 +1215,10 @@ function voteHTML(){
 
 /* decided */
 // スロットが止まる時間（決定画面が出てからのミリ秒）
-const SLOT_KEYS = ['format', 'mode', 'answer', 'genre', 'difficulty'];
-const SLOT_STOPS = [1600, 2700, 3800, 4900, 6000];
-const AFTER_SLOTS = 6700;   // 問題数・制限時間とモードの説明を出す
-const TEAM_SHOW = 7900;     // チーム発表を出す
+const SLOT_KEYS = ['format', 'mode', 'answer', 'genre', 'difficulty', 'extra'];
+const SLOT_STOPS = [1600, 2700, 3800, 4900, 6000, 7100];
+const AFTER_SLOTS = 7800;   // 問題数・制限時間とモードの説明を出す
+const TEAM_SHOW = 9000;     // チーム発表を出す
 let decidedStart = 0, decidedKey = null, slotRAF = 0;
 const reducedMotion = (() => { try{ return matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){ return false; } })();
 function decidedElapsed(){ return reducedMotion ? 99999 : Date.now() - decidedStart; }
@@ -1211,6 +1236,7 @@ function decidedHTML(){
     {k:'answer', label:'回答方式', result:c.answerName, n:votes('answer', c.answer)},
     {k:'genre', label:'ジャンル', result:c.genreName, n:votes('genre', c.genre)},
     {k:'difficulty', label:'難易度', result:c.difficultyName, n:votes('difficulty', c.difficulty)},
+    {k:'extra', label:'特殊ルール', result:c.extraName, n:votes('extra', c.extra)},
   ];
   const el = decidedElapsed();
   const reelHTML = reels.map((r, i) => {
@@ -1233,7 +1259,10 @@ function decidedHTML(){
       ${c.leveled ? '' : `<p class="center muted">${esc(c.genreName)}は難易度に関係なく出題されます。</p>`}
       ${c.answer === 'typing' ? '<p class="center muted">タイピング：答えを入力して送信します。ひらがな・カタカナ・漢字のどれでも正解になります。</p>' : c.answer === 'mixed' ? '<p class="center muted">混合：4択とタイピングの問題が混ざって出題されます。</p>' : ''}
       ${d.forcedSolo ? '<p class="center muted">チーム戦は2人以上で行うため、今回は個人戦になりました。</p>' : ''}
+      ${c.majority ? '<p class="center muted">多数派問題：ときどき正解のない「多数派問題」がまざります。答えを自由に入力し、いちばん多かった答え（2人以上・同数ならすべて）を入力した人が1000点です。</p>' : ''}
       ${isBuzz() ? '<p class="center muted">早押し：最初に正解した人だけが1000点を獲得。誤答（お手つき）すると、その問題には回答できません。</p>' : '<p class="center muted">全員が回答できます。早く正解するほど高得点です。</p>'}
+      ${state.config.bets ? '<p class="center muted">ベット：答えるときに「×2」「×3」を選べます。当たれば得点が2倍・3倍、外れると500点・1500点減ります。</p>' : ''}
+      ${c.extra === 'event' || c.extra === 'both' ? '<p class="center muted">イベント：ときどき「得点2倍」などのイベント問題が出ます。最終問題は得点3倍！</p>' : ''}
     </div>
     ${isTeam() ? `<div class="stack reveal-in${teams ? enter('dec-teams') : ''}" id="dec-teams" ${teams ? '' : 'hidden'}><h3 class="center">チーム発表</h3>${teamsHTML()}<p class="center muted" style="font-size:.85rem">チームの得点は、メンバーの平均点です。</p></div>` : ''}
     <p class="center"><span class="muted">開始まで</span> <span class="timer" id="timer" style="font-size:2rem">${sec}</span></p>
@@ -1256,8 +1285,8 @@ function spinSlots(){
   const c = state.config, d = state.decided;
   const el = decidedElapsed();
   const lists = SLOT_KEYS.map((k) => ((d.ballot.find((b) => b.key === k) || {}).options || []).map((o) => o.name));
-  const results = [c.formatName, c.modeName, c.answerName, c.genreName, c.difficultyName];
-  const counts = [['format', c.format], ['mode', c.mode], ['answer', c.answer], ['genre', c.genre], ['difficulty', c.difficulty]].map(([k, id]) => (d.tally[k] || {})[id] || 0);
+  const results = [c.formatName, c.modeName, c.answerName, c.genreName, c.difficultyName, c.extraName];
+  const counts = [['format', c.format], ['mode', c.mode], ['answer', c.answer], ['genre', c.genre], ['difficulty', c.difficulty], ['extra', c.extra]].map(([k, id]) => (d.tally[k] || {})[id] || 0);
   lists.forEach((names, i) => {
     const reel = document.getElementById('reel-' + i), box = document.getElementById('slot-' + i), v = document.getElementById('votes-' + i);
     if(!reel || !box) return;
@@ -1331,7 +1360,7 @@ function typingHTML(locked){
       <input type="text" id="typing-input" maxlength="40" placeholder="答えを入力" value="${esc(typingDraft)}" ${locked ? 'disabled' : ''} autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="send" aria-label="答え">
       <button class="btn hi" type="submit" ${locked ? 'disabled' : ''}>送信</button>
     </form>
-    <p class="muted center" style="font-size:.85rem">ひらがな・カタカナ・漢字のどれで入力しても正解になります。</p>`;
+    <p class="muted center" style="font-size:.85rem">${state.question && state.question.majority ? '思いついた答えをひとことで。ひらがな・カタカナ・漢字のちがいは同じ答えとして数えます。' : 'ひらがな・カタカナ・漢字のどれで入力しても正解になります。'}</p>`;
 }
 // 登場アニメーションを1回だけ再生するためのしくみ。
 // 画面はだれかが回答・チャットするたびに描き直されるので、そのたびにアニメーションが
@@ -1344,6 +1373,22 @@ function fxOnce(key){
   playedFx.add(k); return true;
 }
 const enter = (key) => fxOnce(key) ? ' enter' : '';
+// ベット（答える前に選ぶ。答えを送ると確定）
+let myBet = 0, betKey = null;
+function betHTML(locked){
+  const bets = state.config && state.config.bets;
+  if(!bets) return '';
+  const chosen = state.myBet != null ? state.myBet : myBet;
+  return `<div class="bets" role="group" aria-label="ベット"><span class="lbl">ベット</span>${bets.map((b, i) =>
+    `<button type="button" class="bet" data-act="bet" data-v="${i}" aria-pressed="${chosen === i}" ${locked ? 'disabled' : ''}>${esc(b.name)}${b.miss ? `<small>外れ −${b.miss}</small>` : ''}</button>`).join('')}</div>`;
+}
+// イベント問題のお知らせ
+function eventHTML(){
+  const e = state.question && state.question.event;
+  if(!e) return '';
+  const who = e.id === 'comeback' && !isSpectator() ? (e.boosted ? '<br><b style="font-size:1rem">あなたは対象です！</b>' : '<br>（あなたは対象外です）') : '';
+  return `<div class="evbanner${enter('ev:' + state.question.index)}"><b>イベント：${esc(e.name)}</b><small>${esc(e.desc)}${who}</small></div>`;
+}
 function questionHTML(){
   const q = state.question;
   const locked = questionLocked();
@@ -1352,11 +1397,16 @@ function questionHTML(){
     // 画面を描き直すたびにアニメーションが再生されてチカチカしないよう、最初の1回だけ動かす
     lastStretch = `<p class="stretch${enter('stretch:' + q.index)}">ここから終盤です。順位と合計点は結果発表まで非表示になります</p>`;
   }
+  const bkey = state.code + ':' + q.index + ':' + q.text;
+  if(betKey !== bkey){ betKey = bkey; myBet = 0; }
   return `<div class="stack">
     ${lastStretch}
+    ${eventHTML()}
     ${qHead()}
     <div class="bar"><i id="tbar" style="width:${100 * remainingMs() / (q.time * 1000)}%"></i></div>
     <div class="qtext">${esc(q.text)}</div>
+    ${q.majority ? '<p class="hint center" style="margin-top:-6px"><b>多数派問題：</b>正解はありません。みんなが書きそうな答えを入力してください</p>' : ''}
+    ${isSpectator() ? '' : betHTML(locked)}
     ${isSpectator() ? `${q.typing ? '' : answersHTML({})}<p class="hint center">観戦中</p>` : (q.typing ? typingHTML(locked) : answersHTML({buttons:true, picked: myPicked(), disabled: locked}))}
     <div id="q-status">${questionStatus()}</div>
     <div class="meter" id="q-meter">${questionMeter()}</div>
@@ -1371,6 +1421,7 @@ function ranking(){
 function hiddenNote(){
   return `<div class="secret"><b>？？？</b><span>終盤のため、順位と合計点は非表示です。<br>結果発表でお知らせします。</span></div>`;
 }
+const betTag = (x) => state.phase === 'reveal' && x.bet && state.config && state.config.bets ? `<span class="betx">${esc(state.config.bets[x.bet].name)}</span>` : '';
 function rankHTML(limit){
   if(state.hidden) return hiddenNote();
   const r = ranking();
@@ -1379,7 +1430,7 @@ function rankHTML(limit){
     const dlt = state.phase === 'reveal' ? (rankDelta[x.id] || 0) : 0;
     const arrow = dlt > 0 ? `<span class="mv up">↑${dlt}</span>` : dlt < 0 ? `<span class="mv down">↓${-dlt}</span>` : '';
     const fire = state.phase === 'reveal' && x.streak >= 3 ? `<span class="fire">${x.streak}連続</span>` : '';
-    return `<li class="${x.id === me().id ? 'me' : ''}${dlt > 0 ? ' rise' + (revealFresh ? ' enter' : '') : ''}"><span class="pos">${pos}</span><span class="nm">${av(x)}${teamDot(x)}${esc(x.name)}${npcTag(x)}${fire}${arrow}</span><span class="gain">${x.gain && state.phase !== 'final' ? '+' + x.gain : ''}</span><span class="sc">${x.score}</span></li>`;
+    return `<li class="${x.id === me().id ? 'me' : ''}${dlt > 0 ? ' rise' + (revealFresh ? ' enter' : '') : ''}"><span class="pos">${pos}</span><span class="nm">${av(x)}${teamDot(x)}${esc(x.name)}${npcTag(x)}${fire}${betTag(x)}${arrow}</span><span class="gain${x.gain < 0 ? ' neg' : ''}">${x.gain && state.phase !== 'final' ? signed(x.gain) : ''}</span><span class="sc">${x.score}</span></li>`;
   };
   const top = limit ? r.slice(0, limit) : r;
   const meRow = limit && !top.some((x) => x.id === me().id) ? r.find((x) => x.id === me().id) : null;
@@ -1392,9 +1443,10 @@ function myPos(){
 function revealAnswersHTML(rv, picked){
   const q = state.question;
   const max = Math.max(1, ...rv.dist);
+  const right = (i) => i === rv.correct;
   return `<ol class="alist">${q.choices.map((txt, i) => {
     const n = rv.dist[i] || 0;
-    return `<li class="arow c${i}${i === rv.correct ? ' right' : ''}${picked === i ? ' mine' : ''}">
+    return `<li class="arow c${i}${right(i) ? ' right' : ''}${picked === i ? ' mine' : ''}">
       <span class="L">${L[i]}</span><span class="t">${esc(txt)}</span>
       ${picked === i ? '<span class="you">あなた</span>' : ''}
       <span class="abar"><i style="width:${Math.round(100 * n / max)}%"></i></span><span class="n">${n}人</span>
@@ -1405,9 +1457,30 @@ function teamStripHTML(){
   if(!isTeam()) return '';
   return `<div class="tstrip">${state.teams.map((t) => `<div class="${t.id}${me().team === t.id ? ' mine' : ''}">
     <span class="tn">${esc(t.name)}${me().team === t.id ? '（あなた）' : ''}</span>
-    <b>${t.score == null ? '？？？' : t.score}</b>${t.gain ? `<small>+${t.gain}</small>` : ''}</div>`).join('')}</div>`;
+    <b>${t.score == null ? '？？？' : t.score}</b>${t.gain ? `<small class="${t.gain < 0 ? 'neg' : ''}">${signed(t.gain)}</small>` : ''}</div>`).join('')}</div>`;
 }
 let revealFresh = false;   // この答え合わせ画面を初めて描くときだけ true
+// 得点の内訳（ベット・イベント）
+function scoreNoteHTML(rv){
+  const bets = state.config && state.config.bets;
+  const notes = [];
+  if(bets && rv.myBet) notes.push(`ベット${bets[rv.myBet].name} ${rv.myCorrect ? '成功' : '失敗'}`);
+  // イベントの倍率（ベットの倍率は上に出しているので、ここではイベントの分だけ）
+  const evX = rv.myMult / (bets ? bets[rv.myBet || 0].x : 1);
+  if(rv.myCorrect && evX > 1) notes.push(`イベント×${evX}`);
+  if(rv.myFirst) notes.push('先着ボーナス +500');
+  if(rv.myLoss) notes.push(`${rv.myLoss}点 減点`);
+  return notes.length ? `<p class="ptsnote">${notes.map(esc).join(' ・ ')}</p>` : '';
+}
+// 多数派問題：答えごとの人数
+function majorityGroupsHTML(list){
+  if(!list.length) return '';
+  const max = Math.max(...list.map((g) => g.n));
+  return `<ol class="alist maj">${list.slice(0, 6).map((g) => `<li class="arow nol${g.top ? ' right' : ''}">
+      <span class="t">${esc(g.label)}</span>
+      <span class="abar"><i style="width:${Math.round(100 * g.n / max)}%"></i></span><span class="n">${g.n}人</span>
+    </li>`).join('')}${list.length > 6 ? `<li class="muted center" style="font-size:.85rem;list-style:none">ほか ${list.length - 6} 種類の答え</li>` : ''}</ol>`;
+}
 function revealHTML(){
   updateRankDelta();
   revealFresh = fxOnce('reveal:' + state.question.index);
@@ -1415,7 +1488,8 @@ function revealHTML(){
   const mine = state.players.find((p) => p.id === me().id) || {score:0};
   const last = q.index + 1 >= q.total;
   const answerBlock = q.typing
-    ? `<div class="truth"><small>正解</small><b>${esc(rv.correctText)}</b></div>
+    ? `<div class="truth"><small>${rv.majority ? '多数派' : '正解'}</small><b>${esc(rv.correctText)}</b></div>
+       ${rv.majority ? majorityGroupsHTML(rv.majority) : ''}
        <ul class="typed">${rv.typed.length ? rv.typed.map((t) => {
          const pl = state.players.find((p) => p.id === t.id) || {};
          return `<li class="${t.correct ? 'ok' : 'ng'}${t.id === me().id ? ' me' : ''}"><span class="mk">${t.correct ? '○' : '×'}</span><span class="nm">${av(pl)}${esc(t.name)}</span><span class="tx">${esc(t.text)}</span><span class="sec">${t.sec}秒</span></li>`;
@@ -1429,6 +1503,9 @@ function revealHTML(){
     else if(picked != null && !rv.myCorrect){ verdict = 'お手つき'; cls = 'ng'; }
     else if(w){ verdict = `${esc(w.name)} が先に正解`; cls = 'ng'; }
     else { verdict = '正解者なし'; cls = 'ng'; }
+  } else if(rv.majority){
+    verdict = picked == null ? '回答なし' : rv.myCorrect ? '多数派！' : '少数派…';
+    cls = picked == null ? 'none' : rv.myCorrect ? 'ok' : 'ng';
   } else {
     verdict = picked == null ? '回答なし' : rv.myCorrect ? '正解！' : '不正解';
     cls = picked == null ? 'none' : rv.myCorrect ? 'ok' : 'ng';
@@ -1438,7 +1515,8 @@ function revealHTML(){
     ${qHead()}
     <div class="result ${cls}">
       <div class="verdict ${cls}${revealFresh ? ' enter' : ''}" style="${verdict.length > 8 ? 'font-size:clamp(1.5rem,7vw,2.4rem)' : ''}">${verdict}</div>
-      ${rv.myGain ? `<div class="pts" id="gainpts" data-to="${rv.myGain}" data-key="${esc(state.code)}:${q.index}">+${rv.myGain}</div>` : ''}
+      ${rv.myGain ? `<div class="pts${rv.myGain < 0 ? ' neg' : ''}" id="gainpts" data-to="${rv.myGain}" data-key="${esc(state.code)}:${q.index}">${signed(rv.myGain)}</div>` : ''}
+      ${scoreNoteHTML(rv)}
       ${rv.myCorrect && rv.myStreak >= 2 ? `<div class="combo${revealFresh ? ' enter' : ''}"><span>${rv.myStreak}連続正解！</span><b>ボーナス +${rv.myBonus}</b></div>` : ''}
       ${sub}
       ${isSpectator() ? '' : `<p class="hint">${state.hidden ? '合計点と順位は結果発表まで非表示' : `合計 ${mine.score}点 ・ いま ${myPos()}位`}</p>`}
@@ -1693,11 +1771,18 @@ document.addEventListener('click', async (e) => {
       api('react', {k: +v});
       break;
     }
+    case 'bet': {
+      if(!state || state.phase !== 'question' || questionLocked()) return;
+      myBet = +v; sfx.tap();
+      // タイピング中は画面を描き直さないので、ボタンの見た目だけ切りかえる
+      document.querySelectorAll('.bet').forEach((x) => x.setAttribute('aria-pressed', String(+x.dataset.v === myBet)));
+      break;
+    }
     case 'answer': {
       if(!online){ toast('再接続中です。少し待ってから回答してください。'); return; }
       if(state.myAnswer != null || pendingAnswer != null || remainingMs() <= 0) return;
       pendingAnswer = +v; sfx.tap(); vibrate(15); render();
-      const r = await api('answer', {c: +v});
+      const r = await api('answer', {c: +v, bet: myBet});
       if(!r.ok){ pendingAnswer = null; toast(r.error || '回答を送れませんでした。'); render(); }
       break;
     }
@@ -1734,7 +1819,7 @@ document.addEventListener('submit', async (e) => {
   if(!state || state.phase !== 'question' || questionLocked()) return;
   if(!online){ toast('再接続中です。少し待ってから送信してください。'); return; }
   pendingAnswer = -1; pendingText = text; sfx.send(); vibrate(15); render();
-  const r = await api('answer', {text});
+  const r = await api('answer', {text, bet: myBet});
   if(!r.ok){ pendingAnswer = null; pendingText = null; toast(r.error || '回答を送れませんでした。'); render(); }
 });
 
@@ -1760,3 +1845,5 @@ loadUpdates();
 </script>
 </body>
 </html>
+
+<!-- new version -->

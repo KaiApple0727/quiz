@@ -12,7 +12,7 @@ const path = require('path');
 const http = require('http');
 const zlib = require('zlib');
 const crypto = require('crypto');
-const { GENRES, BANK } = require('./questions');
+const { GENRES, BANK, MAJORITY } = require('./questions');
 // ログイン機能（下書き・まだ使っていない）。accounts.js がなくても動くようにしておく
 let accounts = null;
 try { accounts = require('./accounts'); } catch { accounts = null; }
@@ -20,13 +20,32 @@ try { accounts = require('./accounts'); } catch { accounts = null; }
 const PORT = process.env.PORT || 3000;
 const MAX_PLAYERS = 50;
 const MAX_BOTS = 7;
-const DECIDED_MS = 11000;            // 決定画面（スロットでルール発表）を見せる時間
-const DECIDED_TEAM_MS = 15000;       // チーム戦のとき（スロットのあとにチーム発表）
+const DECIDED_MS = 12500;            // 決定画面（スロットでルール発表）を見せる時間
+const DECIDED_TEAM_MS = 16000;       // チーム戦のとき（スロットのあとにチーム発表）
 const REVEAL_MS = 5000;              // 答え合わせを見せてから次の問題へ自動で進むまでの時間
 const COUNTS = [5, 10, 15, 30];          // ルーム主が選べる問題数
 const TIMES = [10, 15, 20, 30];      // ルーム主が選べる制限時間（秒）
 const BUZZ_POINTS = 1000;            // 早押しで正解したときの得点
 // 連続正解ボーナス：2連続 +50、3連続 +100 … 6連続以上 +250
+const MAJORITY_POINTS = 1000;        // 多数派問題で多数派を選んだときの得点
+const MAJORITY_RATE = 0.2;           // 多数派問題がまざる確率（1問ごと。1問目には出さない）
+// ベット：答えといっしょに賭ける。x = 正解したときの倍率、miss = 外れたときに減る点
+const BETS = [
+  { x: 1, miss: 0, name: '賭けない' },
+  { x: 2, miss: 500, name: '×2' },
+  { x: 3, miss: 1500, name: '×3' },
+];
+// イベント問題
+const EVENTS = {
+  double:   { name: '得点2倍', desc: 'この問題の得点が2倍になります' },
+  comeback: { name: '逆転チャンス', desc: 'いま下位半分の人は、この問題の得点が3倍になります' },
+  first:    { name: '先着ボーナス', desc: '早く正解した3人に、さらに+500点' },
+  risk:     { name: 'ハイリスク', desc: 'まちがえると-300点（答えなければ減点なし）' },
+  final:    { name: '最終問題', desc: '最後の問題は得点3倍！' },
+};
+const FIRST_BONUS = 500;
+const FIRST_COUNT = 3;
+const RISK_LOSS = 300;
 const streakBonus = (streak) => (streak >= 2 ? Math.min(streak - 1, 5) * 50 : 0);
 const REACTIONS = ['すごい！', '惜しい！', 'ドンマイ', 'ナイス！', 'えっ!?', '速い！'];
 const REACTION_GAP_MS = 700;         // スタンプの連打防止
@@ -116,6 +135,12 @@ function ballot() {
       { id: 'normal', name: '中級' },
       { id: 'hard', name: '上級' },
     ], fallback: 'normal' },
+    { key: 'extra', label: '特殊ルール', options: [
+      { id: 'none', name: 'なし', note: '通常のルールで遊ぶ' },
+      { id: 'bet', name: 'ベット', note: '答えるときに得点を賭けられる' },
+      { id: 'event', name: 'イベント', note: 'ときどき得点2倍などのイベント問題' },
+      { id: 'both', name: 'ベット＋\u200bイベント', note: '両方あり' }, // \u200b は改行してよい位置
+    ], fallback: 'none' },
   ];
 }
 const BALLOT = ballot();
@@ -174,6 +199,17 @@ const voters = (room) => onlineHumans(room).filter((p) => !p.spectator);
 const inGame = (room) => room.phase === 'decided' || room.phase === 'question' || room.phase === 'reveal' || room.phase === 'final';
 const teamMode = (room) => room.config && room.config.format === 'team';
 const buzzMode = (room) => room.config && room.config.mode === 'buzz';
+// 多数派問題：入力された答えを、同じ答えごとにまとめるための見出し
+function majorityKey(q, text) {
+  const n = norm(text);
+  if (!n) return null;
+  const i = q.alias.findIndex((list) => list.includes(n));
+  return i >= 0 ? 'g' + i : 't' + n;
+}
+// 多数派問題がまざるゲームか：回答方式がタイピングか混合で、モードが通常のとき
+const majorityOn = (room) => !!room.config && room.config.mode === 'normal' && (room.config.answer === 'typing' || room.config.answer === 'mixed');
+const betOn = (room) => !!room.config && (room.config.extra === 'bet' || room.config.extra === 'both');
+const eventsOn = (room) => !!room.config && (room.config.extra === 'event' || room.config.extra === 'both');
 
 function clearTimers(room) {
   clearTimeout(room.timer);
@@ -243,6 +279,7 @@ function closeVote(room) {
     genre: result.genre,
     difficulty: result.difficulty,
     answer: result.answer,
+    extra: result.extra,
     count: room.settings.count,
     time: room.settings.time,
   };
@@ -317,6 +354,8 @@ function viewFor(room, player) {
       spectator: !!p.spectator,
       streak: hidden && p.id !== player.id ? 0 : (p.streak || 0),
       answered: room.phase === 'question' ? room.answers.has(p.id) : false,
+      // 答え合わせのときだけ、この問題で賭けた倍率を見せる
+      bet: room.phase === 'reveal' && room.answers.has(p.id) ? (room.answers.get(p.id).bet || 0) : 0,
     })),
   };
   if (room.config && inGame(room)) {
@@ -328,7 +367,10 @@ function viewFor(room, player) {
       difficultyName: optionName('difficulty', room.config.difficulty),
       answerName: optionName('answer', room.config.answer),
       leveled: hasLevels(room.config.genre),
+      extraName: optionName('extra', room.config.extra || 'none'),
+      bets: betOn(room) ? BETS.map((b) => ({ x: b.x, miss: b.miss, name: b.name })) : null,
     };
+    v.config.majority = majorityOn(room);
     v.teams = teamBoard(room);
     if (v.teams && hidden) v.teams = v.teams.map((t) => ({ ...t, score: null, gain: null }));
     v.hidden = hidden;
@@ -368,8 +410,11 @@ function viewFor(room, player) {
       choices: q.typing ? null : q.c, // タイピングの問題では選択肢を送らない
       time: room.config.time,
       remainingMs: room.phase === 'question' ? Math.max(0, room.deadline - Date.now()) : 0,
+      majority: !!q.majority,
+      event: eventView(room, player),
     };
     const mine = room.answers.get(player.id);
+    v.myBet = mine ? (mine.bet || 0) : null;
     v.myAnswer = mine ? (q.typing ? -1 : mine.c) : null;
     v.myText = mine && q.typing ? mine.text : null;
     v.answeredCount = room.answers.size;
@@ -387,9 +432,13 @@ function viewFor(room, player) {
       const dist = [0, 0, 0, 0];
       if (!q.typing) for (const a of room.answers.values()) dist[a.c]++;
       const winner = room.buzzWinner ? room.players.get(room.buzzWinner.id) : null;
+      const maj = q.majority ? (room.majority || []) : null;
+      const tops = maj ? maj.filter((g) => g.top).map((g) => g.label) : [];
+      const info = (room.scoreInfo || {})[player.id] || {};
       v.reveal = {
-        correct: q.typing ? null : q.a,
-        correctText: q.c[q.a],
+        correct: q.typing || q.majority ? null : q.a,
+        majority: maj,
+        correctText: q.majority ? (tops.length ? tops.join('・') : maj.length ? 'なし（同じ答えが2人以上いませんでした）' : '回答なし') : q.c[q.a],
         dist,
         // タイピング: みんなが入力した答え（答えた順）
         typed: q.typing ? [...room.answers.entries()].sort((x, y) => x[1].ms - y[1].ms).map(([pid, a]) => ({
@@ -399,6 +448,11 @@ function viewFor(room, player) {
         myGain: player.gain,
         myBonus: player.bonus || 0,
         myStreak: player.streak || 0,
+        myBet: mine ? (mine.bet || 0) : 0,
+        myMult: info.mult || 1,
+        myFirst: !!info.first,
+        myLoss: info.loss || 0,
+        myBoosted: !!info.boosted,
         winner: winner ? { id: winner.id, name: winner.name, team: winner.team, sec: (room.buzzWinner.ms / 1000).toFixed(1) } : null,
         nextInMs: Math.max(0, room.revealEndsAt - Date.now()),
         last: room.qIndex + 1 >= room.questions.length,
@@ -419,6 +473,52 @@ function broadcast(room) {
   }
 }
 
+/* ---------- イベント問題・ベット ---------- */
+function eventView(room, player) {
+  const id = room.events ? room.events[room.qIndex] : null;
+  if (!id) return null;
+  const e = EVENTS[id];
+  return { id, name: e.name, desc: e.desc, boosted: id === 'comeback' ? (room.boosted || []).includes(player.id) : undefined };
+}
+// どの問題をイベントにするか（2問目以降からいくつか＋最終問題）
+function planEvents(total, hideFrom) {
+  const events = new Array(total).fill(null);
+  if (total < 2) return events;
+  events[total - 1] = 'final';
+  const slots = shuffle([...Array(Math.max(0, total - 2)).keys()].map((i) => i + 1));
+  const n = Math.max(1, Math.floor(total / 4));
+  for (const i of slots.slice(0, n)) {
+    // 順位をかくしている終盤には「逆転チャンス」を出さない（対象かどうかで順位が分かってしまうため）
+    const kinds = i >= hideFrom ? ['double', 'first', 'risk'] : ['double', 'comeback', 'first', 'risk'];
+    events[i] = pick(kinds);
+  }
+  return events;
+}
+// 逆転チャンスの対象：問題が出た時点で下位半分の人
+function bottomHalf(room) {
+  const list = connectedPlayers(room).sort((a, b) => b.score - a.score);
+  if (list.length < 2) return [];
+  const cut = list[Math.ceil(list.length / 2) - 1].score; // 上位半分のいちばん下の点
+  return list.filter((p) => p.score < cut).map((p) => p.id);
+}
+// 正解したときの得点（base = もとの点）。倍率と先着ボーナスをかける
+function winPoints(room, p, a, base, firsts) {
+  const ev = room.events ? room.events[room.qIndex] : null;
+  const betX = BETS[a.bet || 0].x;
+  const boosted = ev === 'comeback' && (room.boosted || []).includes(p.id);
+  const evX = ev === 'double' ? 2 : ev === 'final' ? 3 : boosted ? 3 : 1;
+  const first = ev === 'first' && firsts.includes(p.id);
+  room.scoreInfo[p.id] = { mult: betX * evX, first, boosted };
+  return base * betX * evX + (first ? FIRST_BONUS : 0);
+}
+// まちがえたときに減る点（0点のときに賭けても損がないと意味がないので、マイナスにもなる）
+function missPoints(room, p, a) {
+  const ev = room.events ? room.events[room.qIndex] : null;
+  const loss = BETS[a.bet || 0].miss + (ev === 'risk' ? RISK_LOSS : 0);
+  room.scoreInfo[p.id] = { loss };
+  return loss;
+}
+
 /* ---------- 進行 ---------- */
 function startGame(room) {
   if (room.phase !== 'decided') return;
@@ -429,7 +529,23 @@ function startGame(room) {
     const typing = typable(q) && (answer === 'typing' || (answer === 'mixed' && Math.random() < 0.5));
     return { t: q.t, c: order.map((i) => q.c[i]), a: order.indexOf(0), typing, accept: typing ? acceptList(q) : null };
   });
+  if (majorityOn(room)) {
+    // 多数派問題をランダムにまぜる（正解はなく、いちばん多く選ばれた答えが「正解」）
+    const extra = shuffle(MAJORITY);
+    for (let i = 1; i < room.questions.length; i++) {
+      if (Math.random() >= MAJORITY_RATE || !extra.length) continue;
+      const q = extra.pop();
+      // NPC の選びやすさ（問題ごとにばらつかせて、NPC どうしでも多数派・少数派ができるようにする）
+      const w = shuffle(q.a.map((_, k) => [6, 3, 1.5, 0.8][k] || 0.4)).map((x) => x * (0.7 + Math.random() * 0.6));
+      room.questions[i] = {
+        t: q.t, typing: true, majority: true, a: -1, w,
+        c: q.a.map((g) => g[0]),                                   // よくある答え（表示用・NPC が入力する答え）
+        alias: q.a.map((g) => [...new Set(g.map(norm))]),          // 同じ答えとみなす書き方
+      };
+    }
+  }
   room.hideFrom = hideFromIndex(room.questions.length);
+  room.events = eventsOn(room) ? planEvents(room.questions.length, room.hideFrom) : null;
   room.recorded = null;
   for (const p of room.players.values()) { p.score = 0; p.gain = 0; p.bonus = 0; p.streak = 0; p.seen = 0; p.correct = 0; }
   showQuestion(room, 0);
@@ -440,6 +556,9 @@ function showQuestion(room, i) {
   room.qIndex = i;
   room.answers = new Map();
   room.buzzWinner = null;
+  room.majority = null;
+  room.scoreInfo = {};
+  room.boosted = room.events && room.events[i] === 'comeback' ? bottomHalf(room) : [];
   for (const p of room.players.values()) { p.gain = 0; p.bonus = 0; p.seen = (p.seen || 0) + 1; } // 出題された問題数（成績用）
   room.qStartedAt = Date.now();
   room.deadline = room.qStartedAt + room.config.time * 1000;
@@ -451,24 +570,50 @@ function reveal(room) {
   if (room.phase !== 'question') return;
   clearTimers(room);
   const q = room.questions[room.qIndex];
+  room.scoreInfo = room.scoreInfo || {};
+  if (q.majority) {
+    // 多数派問題：入力された答えを同じ答えごとに数え、いちばん多い答え（同数ならすべて）が「正解」。
+    // 2人以上が同じ答えでなければ、多数派はなし
+    const groups = new Map();
+    for (const a of [...room.answers.values()].sort((x, y) => x.ms - y.ms)) {
+      if (!a.key) continue;
+      const i = a.key[0] === 'g' ? +a.key.slice(1) : -1;
+      if (!groups.has(a.key)) groups.set(a.key, { key: a.key, label: i >= 0 ? q.c[i] : a.text.trim(), n: 0 });
+      groups.get(a.key).n++;
+    }
+    const list = [...groups.values()].sort((x, y) => y.n - x.n);
+    const max = list.length ? list[0].n : 0;
+    const top = max >= 2 ? list.filter((g) => g.n === max).map((g) => g.key) : [];
+    for (const a of room.answers.values()) a.correct = top.includes(a.key);
+    room.majority = list.map((g) => ({ label: g.label, n: g.n, top: top.includes(g.key) }));
+  }
   for (const [pid, a] of room.answers) { const p = room.players.get(pid); if (p && a.correct) p.correct = (p.correct || 0) + 1; }
   if (!buzzMode(room)) {
     const limit = room.config.time * 1000;
+    const firsts = [...room.answers.entries()].filter(([, a]) => a.correct).sort((x, y) => x[1].ms - y[1].ms).slice(0, FIRST_COUNT).map(([pid]) => pid);
     for (const p of room.players.values()) {
       const a = room.answers.get(p.id);
       if (a && a.correct) {
-        const pts = Math.round(1000 - 500 * Math.min(1, a.ms / limit)); // 速いほど高得点（500〜1000点）
+        // 速いほど高得点（500〜1000点）。多数派クイズは速さに関係なく1000点
+        const base = q.majority ? MAJORITY_POINTS : Math.round(1000 - 500 * Math.min(1, a.ms / limit));
+        const pts = winPoints(room, p, a, base, firsts);
         p.streak = (p.streak || 0) + 1;
         p.bonus = streakBonus(p.streak);
         p.score += pts + p.bonus;
         p.gain = pts + p.bonus;
       } else {
         p.streak = 0; // まちがえた・答えなかったら連続は止まる
+        if (a) { const loss = missPoints(room, p, a); p.score -= loss; p.gain = -loss; }
       }
     }
   } else {
-    // 早押し：まちがえた（お手つき）人だけ連続が止まる。正解者の連続は答えたときに数えている
-    for (const [pid, a] of room.answers) { const p = room.players.get(pid); if (p && !a.correct) p.streak = 0; }
+    // 早押し：まちがえた（お手つき）人だけ連続が止まる。正解者の得点と連続は答えたときに数えている
+    for (const [pid, a] of room.answers) {
+      const p = room.players.get(pid);
+      if (!p || a.correct) continue;
+      p.streak = 0;
+      const loss = missPoints(room, p, a); p.score -= loss; p.gain = -loss;
+    }
   }
   room.phase = 'reveal';
   room.revealEndsAt = Date.now() + REVEAL_MS;
@@ -515,12 +660,16 @@ function submitAnswer(room, p, input) {
   if (Date.now() > room.deadline + GRACE_MS) return false;
   const q = room.questions[room.qIndex];
   let entry;
-  if (q.typing) {
+  if (q.typing && q.majority) {
+    const text = String(input.text || '').slice(0, 40);
+    entry = { c: -1, text, ms, correct: false, key: majorityKey(q, text) }; // 多数派かどうかは答え合わせで決まる
+  } else if (q.typing) {
     const text = String(input.text || '').slice(0, 40);
     entry = { c: -1, text, ms, correct: q.accept.includes(norm(text)) };
   } else {
-    entry = { c: input.c, ms, correct: input.c === q.a };
+    entry = { c: input.c, ms, correct: !q.majority && input.c === q.a }; // 多数派クイズは答え合わせで決まる
   }
+  entry.bet = betOn(room) ? (input.bet || 0) : 0;
   const correct = entry.correct;
   room.answers.set(p.id, entry);
   if (buzzMode(room) && correct && !room.buzzWinner) {
@@ -528,8 +677,9 @@ function submitAnswer(room, p, input) {
     room.buzzWinner = { id: p.id, ms };
     p.streak = (p.streak || 0) + 1;
     p.bonus = streakBonus(p.streak);
-    p.score += BUZZ_POINTS + p.bonus;
-    p.gain = BUZZ_POINTS + p.bonus;
+    const pts = winPoints(room, p, entry, BUZZ_POINTS, [p.id]);
+    p.score += pts + p.bonus;
+    p.gain = pts + p.bonus;
     clearTimers(room);
     room.timer = setTimeout(() => reveal(room), 400);
     broadcast(room);
@@ -575,7 +725,20 @@ function scheduleBots(room, elapsed = 0) {
     if (q.typing) accuracy *= BOT_TYPING.accuracy;
     const right = Math.random() < accuracy;
     const wrong = [0, 1, 2, 3].filter((i) => i !== q.a);
-    const c = right ? q.a : pick(wrong);
+    let c = right ? q.a : pick(wrong);
+    if (q.majority) {
+      // 多数派クイズ：問題ごとの選ばれやすさにしたがって選ぶ
+      let r = Math.random() * q.w.reduce((x, y) => x + y, 0);
+      c = q.w.findIndex((x) => (r -= x) < 0);
+      if (c < 0) c = 0;
+    }
+    // ベット：分かっているとき（正解するとき）ほど大きく賭ける
+    let bet = 0;
+    if (betOn(room)) {
+      const r = Math.random();
+      const sure = q.majority ? 0.3 : right ? 0.55 : 0.15;
+      bet = r < sure * 0.4 ? 2 : r < sure ? 1 : 0;
+    }
     let delay;
     if (q.typing) {
       // 文字を打つ時間をとってから、残りの時間の中で答える（長い答えで間に合わなければ答えない）
@@ -588,7 +751,7 @@ function scheduleBots(room, elapsed = 0) {
     }
     if (elapsed) delay = Math.max(800 + Math.random() * 1500, delay - elapsed);
     // タイピングの問題では、選んだ選択肢の言葉を「入力」する
-    const input = q.typing ? { text: q.c[c] } : { c };
+    const input = q.typing ? { text: q.c[c], bet } : { c, bet };
     room.botTimers.push(setTimeout(() => {
       if (room.questions[room.qIndex] !== q || !room.players.has(p.id)) return;
       submitAnswer(room, p, input);
@@ -863,6 +1026,7 @@ const actions = {
       if (![0, 1, 2, 3].includes(c)) return { ok: false };
       input = { c };
     }
+    input.bet = clampInt(body.bet, BETS.length, 0);
     const ok = submitAnswer(room, me, input);
     return ok ? { ok: true } : { ok: false, error: '時間切れです。' };
   },
@@ -983,6 +1147,10 @@ function snapshotOf(room) {
     answers: [...room.answers.entries()],
     buzzWinner: room.buzzWinner,
     hideFrom: room.hideFrom,
+    events: room.events || null,
+    boosted: room.boosted || [],
+    majority: room.majority || null,
+    scoreInfo: room.scoreInfo || {},
     forcedSolo: room.forcedSolo,
     lastTally: room.lastTally,
     recorded: room.recorded || null,
@@ -1003,7 +1171,8 @@ function restoreRoom(snap) {
     votes: new Map(snap.votes || []), ready: new Set(snap.ready || []),
     players: new Map(), questions: snap.questions || [], qIndex: snap.qIndex || 0,
     answers: new Map(snap.answers || []), buzzWinner: snap.buzzWinner || null,
-    hideFrom: snap.hideFrom, forcedSolo: snap.forcedSolo, lastTally: snap.lastTally, recorded: snap.recorded || null, chat: snap.chat || [],
+    hideFrom: snap.hideFrom, events: snap.events || null, boosted: snap.boosted || [], majority: snap.majority || null, scoreInfo: snap.scoreInfo || {},
+    forcedSolo: snap.forcedSolo, lastTally: snap.lastTally, recorded: snap.recorded || null, chat: snap.chat || [],
     botTimers: [], lastActive: now, restoredAt: now,
   };
   for (const p of snap.players || []) room.players.set(p.id, { ...p, streams: new Set() });
