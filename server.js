@@ -1,7 +1,7 @@
 // みんなのクイズ大会 — サーバー（追加ライブラリ不要。Node.js 18 以上で動きます）
 // 正解はこのサーバーの中だけにあり、答え合わせの瞬間まで誰のブラウザにも送りません。
 //
-// 流れ : ロビー（ルーム主が問題数・制限時間を決める） → 投票（形式・モード・ジャンルを多数決。全員が準備OKで締め切り）
+// 流れ : ロビー（ルーム主が問題数・制限時間を決める） → 投票（形式・モード・回答方式・ジャンル・難易度を多数決。全員が準備OKで締め切り）
 //        → 決定（チーム発表） → 出題 → 答え合わせ（5秒で自動的に次へ） → … → 結果発表
 // しくみ
 //   画面 → サーバー : POST /api/<操作>   （JSON）
@@ -16,10 +16,10 @@ const { GENRES, BANK } = require('./questions');
 const PORT = process.env.PORT || 3000;
 const MAX_PLAYERS = 50;
 const MAX_BOTS = 7;
-const DECIDED_MS = 9000;             // 決定画面（スロットでルール発表）を見せる時間
-const DECIDED_TEAM_MS = 13000;       // チーム戦のとき（スロットのあとにチーム発表）
+const DECIDED_MS = 11000;            // 決定画面（スロットでルール発表）を見せる時間
+const DECIDED_TEAM_MS = 15000;       // チーム戦のとき（スロットのあとにチーム発表）
 const REVEAL_MS = 5000;              // 答え合わせを見せてから次の問題へ自動で進むまでの時間
-const COUNTS = [5, 10, 15];          // ルーム主が選べる問題数
+const COUNTS = [5, 10, 15, 30];          // ルーム主が選べる問題数
 const TIMES = [10, 15, 20, 30];      // ルーム主が選べる制限時間（秒）
 const BUZZ_POINTS = 1000;            // 早押しで正解したときの得点
 const HOST_HANDOVER_MS = 15000;      // ルーム主が切断したまま戻らないとき、次の人に交代するまでの時間
@@ -57,6 +57,19 @@ function pool(genre) {
   if (genre === 'mix') return GENRES.flatMap((g) => BANK[g.id] || []);
   return BANK[genre] || [];
 }
+// 難易度が分かれているジャンルか（なぞなぞは共通）
+const hasLevels = (genre) => pool(genre).some((q) => q.d);
+// 難易度に合わせて問題を選ぶ。選んだ難易度の問題を優先し、足りなければ近い難易度から補う
+const LEVEL_ORDER = { easy: [1, 2, 3], normal: [2, 1, 3], hard: [3, 2, 1] };
+const typable = (q) => Array.isArray(q.k);
+function pickQuestions(genre, difficulty, count, answerType) {
+  // タイピングのときは、入力で答えられる問題だけから選ぶ
+  const all = answerType === 'typing' ? pool(genre).filter(typable) : pool(genre);
+  if (!hasLevels(genre)) return shuffle(all).slice(0, count);
+  const order = LEVEL_ORDER[difficulty] || LEVEL_ORDER.normal;
+  const picked = order.flatMap((lv) => shuffle(all.filter((q) => (q.d || 2) === lv))).slice(0, count);
+  return shuffle(picked);
+}
 
 // 投票で選ぶもの（問題数と制限時間はルーム主が決める）。id はすべて文字列
 function ballot() {
@@ -69,13 +82,50 @@ function ballot() {
       { id: 'normal', name: 'ふつう', note: '全員が答える。速く正解するほど高得点' },
       { id: 'buzz', name: '早押し', note: 'いちばん早く正解した人だけ得点。まちがえるとお手つき' },
     ], fallback: 'normal' },
+    { key: 'answer', label: '回答方式', options: [
+      { id: 'choice', name: '4択', note: '4つの中から選ぶ' },
+      { id: 'typing', name: 'タイピング', note: '答えを入力する' },
+      { id: 'mixed', name: 'まぜる', note: '4択とタイピングが混ざる' },
+    ], fallback: 'choice' },
     { key: 'genre', label: 'ジャンル', options: [
       ...GENRES.map((g) => ({ id: g.id, name: g.name, note: g.note, count: pool(g.id).length })),
       { id: 'mix', name: 'ミックス', note: '全ジャンルからランダム', count: pool('mix').length },
     ].filter((g) => g.count > 0), fallback: null },
+    { key: 'difficulty', label: '難易度', options: [
+      { id: 'easy', name: 'かんたん' },
+      { id: 'normal', name: 'ふつう' },
+      { id: 'hard', name: 'むずかしい' },
+    ], fallback: 'normal' },
   ];
 }
 const BALLOT = ballot();
+
+/* ---------- タイピングの答え合わせ ---------- */
+// 全角/半角・大文字/小文字・カタカナ/ひらがな・空白や記号のちがいは同じとみなす
+function norm(s) {
+  return String(s || '')
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[\u30a1-\u30f6]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0x60))
+    .replace(/[\s・.,、。!?！？「」『』"'`~〜\-ー－―]/g, (ch) => (ch === 'ー' ? 'ー' : ''))
+    .trim();
+}
+// 正解として認める書き方の一覧（（ ）の中は書いても書かなくてもよい）
+function acceptList(q) {
+  const out = new Set();
+  for (const raw of [q.c[0], ...(q.k || [])]) {
+    const s = String(raw);
+    out.add(norm(s));
+    const outer = s.replace(/（[^）]*）|\([^)]*\)/g, '');
+    if (outer.trim()) out.add(norm(outer));
+    for (const m of s.matchAll(/（([^）]*)）|\(([^)]*)\)/g)) {
+      const inner = m[1] || m[2];
+      if (inner && !/[、。]/.test(inner)) out.add(norm(inner));
+    }
+  }
+  out.delete('');
+  return [...out];
+}
 const optionName = (key, id) => ((BALLOT.find((b) => b.key === key) || { options: [] }).options.find((o) => o.id === id) || {}).name || '';
 
 function newCode() {
@@ -169,6 +219,8 @@ function closeVote(room) {
     format: result.format,
     mode: result.mode,
     genre: result.genre,
+    difficulty: result.difficulty,
+    answer: result.answer,
     count: room.settings.count,
     time: room.settings.time,
   };
@@ -234,6 +286,9 @@ function viewFor(room, player) {
       formatName: optionName('format', room.config.format),
       modeName: optionName('mode', room.config.mode),
       genreName: optionName('genre', room.config.genre),
+      difficultyName: optionName('difficulty', room.config.difficulty),
+      answerName: optionName('answer', room.config.answer),
+      leveled: hasLevels(room.config.genre),
     };
     v.teams = teamBoard(room);
   }
@@ -263,12 +318,14 @@ function viewFor(room, player) {
       index: room.qIndex,
       total: room.questions.length,
       text: q.t,
-      choices: q.c,
+      typing: q.typing,
+      choices: q.typing ? null : q.c, // タイピングの問題では選択肢を送らない
       time: room.config.time,
       remainingMs: room.phase === 'question' ? Math.max(0, room.deadline - Date.now()) : 0,
     };
     const mine = room.answers.get(player.id);
-    v.myAnswer = mine ? mine.c : null;
+    v.myAnswer = mine ? (q.typing ? -1 : mine.c) : null;
+    v.myText = mine && q.typing ? mine.text : null;
     v.answeredCount = room.answers.size;
     v.playerCount = connectedPlayers(room).length;
     if (buzzMode(room)) {
@@ -282,12 +339,17 @@ function viewFor(room, player) {
     // 正解は答え合わせのときだけ入れる
     if (room.phase === 'reveal') {
       const dist = [0, 0, 0, 0];
-      for (const a of room.answers.values()) dist[a.c]++;
+      if (!q.typing) for (const a of room.answers.values()) dist[a.c]++;
       const winner = room.buzzWinner ? room.players.get(room.buzzWinner.id) : null;
       v.reveal = {
-        correct: q.a,
+        correct: q.typing ? null : q.a,
+        correctText: q.c[q.a],
         dist,
-        myCorrect: !!mine && mine.c === q.a,
+        // タイピング: みんなが入力した答え（答えた順）
+        typed: q.typing ? [...room.answers.entries()].sort((x, y) => x[1].ms - y[1].ms).map(([pid, a]) => ({
+          id: pid, name: (room.players.get(pid) || {}).name || '', text: a.text, correct: a.correct, sec: (a.ms / 1000).toFixed(1),
+        })) : null,
+        myCorrect: !!mine && mine.correct,
         myGain: player.gain,
         winner: winner ? { id: winner.id, name: winner.name, team: winner.team, sec: (room.buzzWinner.ms / 1000).toFixed(1) } : null,
         nextInMs: Math.max(0, room.revealEndsAt - Date.now()),
@@ -311,10 +373,12 @@ function broadcast(room) {
 /* ---------- 進行 ---------- */
 function startGame(room) {
   if (room.phase !== 'decided') return;
-  const { genre, count } = room.config;
-  room.questions = shuffle(pool(genre)).slice(0, count).map((q) => {
+  const { genre, difficulty, count, answer } = room.config;
+  room.questions = pickQuestions(genre, difficulty, count, answer).map((q) => {
     const order = shuffle([0, 1, 2, 3]);
-    return { t: q.t, c: order.map((i) => q.c[i]), a: order.indexOf(0) };
+    // まぜる: タイピングで答えられる問題を半分くらいの確率でタイピングにする
+    const typing = typable(q) && (answer === 'typing' || (answer === 'mixed' && Math.random() < 0.5));
+    return { t: q.t, c: order.map((i) => q.c[i]), a: order.indexOf(0), typing, accept: typing ? acceptList(q) : null };
   });
   for (const p of room.players.values()) { p.score = 0; p.gain = 0; }
   showQuestion(room, 0);
@@ -340,7 +404,7 @@ function reveal(room) {
     const limit = room.config.time * 1000;
     for (const [pid, a] of room.answers) {
       const p = room.players.get(pid);
-      if (p && a.c === q.a) {
+      if (p && a.correct) {
         const pts = Math.round(1000 - 500 * Math.min(1, a.ms / limit)); // 速いほど高得点（500〜1000点）
         p.score += pts;
         p.gain = pts;
@@ -359,13 +423,21 @@ function advance(room) {
   if (room.qIndex + 1 < room.questions.length) showQuestion(room, room.qIndex + 1);
   else { room.phase = 'final'; broadcast(room); }
 }
-function submitAnswer(room, p, c) {
+// input は { c: 選んだ番号 } か { text: 入力した答え }
+function submitAnswer(room, p, input) {
   if (room.phase !== 'question' || room.answers.has(p.id)) return false;
   const ms = Date.now() - room.qStartedAt;
   if (ms > room.config.time * 1000 + GRACE_MS) return false;
   const q = room.questions[room.qIndex];
-  const correct = c === q.a;
-  room.answers.set(p.id, { c, ms, correct });
+  let entry;
+  if (q.typing) {
+    const text = String(input.text || '').slice(0, 40);
+    entry = { c: -1, text, ms, correct: q.accept.includes(norm(text)) };
+  } else {
+    entry = { c: input.c, ms, correct: input.c === q.a };
+  }
+  const correct = entry.correct;
+  room.answers.set(p.id, entry);
   if (buzzMode(room) && correct && !room.buzzWinner) {
     // 早押し: 最初の正解者だけ得点。そこで締め切る
     room.buzzWinner = { id: p.id, ms };
@@ -410,9 +482,11 @@ function scheduleBots(room) {
     const right = Math.random() < lv.accuracy;
     const wrong = [0, 1, 2, 3].filter((i) => i !== q.a);
     const c = right ? q.a : pick(wrong);
+    // タイピングの問題では、選んだ選択肢の言葉を「入力」する
+    const input = q.typing ? { text: q.c[c] } : { c };
     room.botTimers.push(setTimeout(() => {
       if (room.questions[room.qIndex] !== q || !room.players.has(p.id)) return;
-      submitAnswer(room, p, c);
+      submitAnswer(room, p, input);
     }, delay));
   }
 }
@@ -549,10 +623,19 @@ const actions = {
   answer(body) {
     const { room, me } = auth(body);
     if (!me) return { ok: false };
-    const c = Number(body.c);
-    if (![0, 1, 2, 3].includes(c)) return { ok: false };
     if (room.phase !== 'question') return { ok: false, error: 'この問題はもう締め切られました。' };
-    const ok = submitAnswer(room, me, c);
+    const q = room.questions[room.qIndex];
+    let input;
+    if (q.typing) {
+      const text = String(body.text || '').trim();
+      if (!text) return { ok: false, error: '答えを入力してください。' };
+      input = { text };
+    } else {
+      const c = Number(body.c);
+      if (![0, 1, 2, 3].includes(c)) return { ok: false };
+      input = { c };
+    }
+    const ok = submitAnswer(room, me, input);
     return ok ? { ok: true } : { ok: false, error: '時間切れです。' };
   },
   close(body) {

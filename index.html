@@ -126,6 +126,24 @@ button.ans:disabled{cursor:default}
 .meter{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
 .count{font-family:var(--dot);font-size:1.3rem}
 
+/* typing */
+.typing{display:flex;gap:10px;align-items:stretch}
+.typing input{flex:1;min-width:0;font-size:1.3rem;padding:14px 16px;border-width:3px;border-color:var(--ink)}
+.typing input:disabled{opacity:.6}
+.typing .btn{flex:none}
+.truth{display:flex;flex-direction:column;align-items:center;gap:2px;padding:14px;border-radius:16px;background:var(--good);color:var(--surface);text-align:center}
+.truth small{opacity:.9;font-size:.8rem}
+.truth b{font-family:var(--display);font-weight:400;font-size:clamp(1.4rem,6vw,2rem);overflow-wrap:anywhere}
+.typed{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.typed li{display:grid;grid-template-columns:1.6em minmax(0,7em) minmax(0,1fr) auto;gap:10px;align-items:center;padding:8px 12px;border-radius:12px;background:var(--surface);border:1.5px solid var(--line)}
+.typed li.me{box-shadow:inset 4px 0 0 var(--hi)}
+.typed .mk{font-weight:700;text-align:center}
+.typed li.ok .mk{color:var(--good)} .typed li.ng .mk{color:var(--bad)}
+.typed .nm{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.typed .tx{overflow-wrap:anywhere}
+.typed .sec{font-family:var(--dot);color:var(--muted);font-size:.9rem}
+.typed li.empty{display:block;text-align:center}
+
 /* reveal */
 .verdict{font-family:var(--display);font-size:clamp(2.2rem,11vw,3.6rem);line-height:1.1}
 .verdict.ok{color:var(--good)} .verdict.ng{color:var(--bad)}
@@ -159,6 +177,9 @@ button.ans:disabled{cursor:default}
 .vote-sec{display:flex;flex-direction:column;gap:8px}
 .vote-opts{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
 .vote-opts.two{grid-template-columns:1fr 1fr}
+.vote-opts.three{grid-template-columns:repeat(3,minmax(0,1fr))}
+.vote-opts.three .vopt{align-items:center;padding:12px 6px}
+.vote-opts.three .vopt b{font-size:.95rem;white-space:nowrap}
 .vote-opts.small{grid-template-columns:repeat(auto-fill,minmax(76px,1fr))}
 .vopt{position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:12px 14px;border-radius:14px;border:2px solid var(--line);background:var(--surface);text-align:left;min-width:0}
 .vopt b{font-family:var(--display);font-weight:400;font-size:1.05rem;line-height:1.3}
@@ -178,7 +199,8 @@ button.ans:disabled{cursor:default}
 .rule small{color:var(--muted);font-size:.8rem}
 
 /* slots */
-.slots{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.slots{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
+@media (max-width:700px){.slots{grid-template-columns:repeat(3,minmax(0,1fr))}}
 .slot{display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 8px;border-radius:16px;background:var(--surface);border:2px solid var(--line);min-width:0;text-align:center}
 .slot small{color:var(--muted);font-size:.8rem}
 .slot .window{width:100%;min-height:3.4em;display:grid;place-items:center;border-radius:10px;background:var(--ink);color:var(--bg);padding:6px 4px;overflow:hidden}
@@ -239,6 +261,9 @@ let online = false;
 let deadline = 0;        // local ms when the current timer (vote / decided / question) ends
 let lastKey = null;
 let pendingAnswer = null;
+let pendingText = null;     // タイピングで送った答え（サーバーの返事を待つあいだ）
+let typingDraft = '';       // 入力中の答え
+let composing = false;      // 日本語入力の変換中
 let homeError = '';
 let reconnecting = false;
 let botLevel = store('quiz.botLevel') || 'normal';
@@ -299,7 +324,7 @@ function onState(){
   if(t){
     const fresh = Date.now() + t.ms;
     if(t.key !== lastKey || Math.abs(fresh - deadline) > 700) deadline = fresh;
-    if(t.key !== lastKey) pendingAnswer = null;
+    if(t.key !== lastKey){ pendingAnswer = null; pendingText = null; typingDraft = ''; }
     lastKey = t.key;
   } else lastKey = state.phase;
   render();
@@ -331,6 +356,23 @@ function render(){
   if(!session){ stage.innerHTML = homeHTML(); bindHome(); return; }
   if(!state){ stage.innerHTML = `<div class="marquee"><p class="muted">接続中…</p></div>`; return; }
   const ph = state.phase;
+  // タイピング中は入力欄を作り直さない（日本語入力の変換が途中で消えないように）
+  if(ph === 'question' && state.question.typing){
+    const key = 'q' + state.question.index + ':' + (questionLocked() ? 1 : 0);
+    if(stage.dataset.view === key && document.getElementById('typing-input')){
+      const st = $('#q-status'), mt = $('#q-meter');
+      if(st) st.innerHTML = questionStatus();
+      if(mt) mt.innerHTML = questionMeter();
+      return;
+    }
+    const firstTime = !(stage.dataset.view || '').startsWith('q' + state.question.index + ':');
+    stage.dataset.view = key;
+    stage.innerHTML = questionHTML();
+    const input = document.getElementById('typing-input');
+    if(input && !input.disabled && (firstTime || document.activeElement === document.body)) input.focus();
+    return;
+  }
+  stage.dataset.view = '';
   stage.innerHTML =
     ph === 'lobby' ? lobbyHTML() :
     ph === 'vote' ? voteHTML() :
@@ -443,7 +485,9 @@ function teamsHTML(opts){
 }
 function tagsHTML(){
   if(!state.config) return '';
-  return `<span class="tag">${esc(state.config.genreName)}</span>${isBuzz() ? ' <span class="tag">早押し</span>' : ''}`;
+  const c = state.config;
+  const typingTag = state.question && state.question.typing ? ' <span class="tag">タイピング</span>' : '';
+  return `<span class="tag">${esc(c.genreName)}</span>${typingTag}${c.leveled ? ` <span class="tag">${esc(c.difficultyName)}</span>` : ''}${isBuzz() ? ' <span class="tag">早押し</span>' : ''}`;
 }
 
 /* lobby */
@@ -456,12 +500,12 @@ function lobbyHTML(){
     </div>
     <div class="panel stack">
       ${host ? `<h2 style="font-size:1.2rem">メンバーがそろったら、はじめよう</h2>
-        <p class="muted">問題数と制限時間はここで決めます。「はじめる」を押すと、全員で投票して形式・モード・ジャンルを決めます。</p>
+        <p class="muted">問題数と制限時間はここで決めます。「はじめる」を押すと、全員で投票して形式・モード・回答方式・ジャンル・難易度を決めます。</p>
         ${settingsHTML()}
         ${npcHTML()}
         <div class="row" style="justify-content:flex-end"><button class="btn hi" data-act="startVote">はじめる</button></div>`
       : `<h2 style="font-size:1.2rem">ルーム主がはじめるのを待っています</h2>
-        <p class="muted">はじまったら、みんなで形式・モード・ジャンルを投票で決めます。</p>
+        <p class="muted">はじまったら、みんなで形式・モード・回答方式・ジャンル・難易度を投票で決めます。</p>
         ${settingsHTML()}`}
     </div>`;
 }
@@ -471,7 +515,7 @@ function voteHTML(){
   const v = state.vote;
   const allMine = v.ballot.every((b) => v.mine[b.key]);
   const secs = v.ballot.map((b) => {
-    const cls = b.key === 'format' || b.key === 'mode' ? 'two' : '';
+    const cls = b.key === 'format' || b.key === 'mode' ? 'two' : (b.key === 'difficulty' || b.key === 'answer') ? 'three' : '';
     return `<div class="vote-sec">
       <span class="lbl">${esc(b.label)}</span>
       <div class="vote-opts ${cls}">${b.options.map((o) => {
@@ -488,7 +532,7 @@ function voteHTML(){
     : `<button class="btn hi" data-act="ready" data-v="1" ${allMine ? '' : 'disabled'}>準備OK</button>`;
   const note = v.myReady
     ? '準備OKです。みんながそろうのを待っています。投票を変えたいときは取り消してください。'
-    : allMine ? '選び終わったら「準備OK」を押してください。' : '形式・モード・ジャンルをそれぞれ1つずつ選んでください。';
+    : allMine ? '選び終わったら「準備OK」を押してください。' : 'それぞれの項目から1つずつ選んでください。';
   return `<div class="stack">
     <h2 style="font-size:clamp(1.3rem,5vw,1.8rem)">ルールを投票で決めよう</h2>
     <p class="muted">数字は今の票数です。全員が「準備OK」を押したら、票の多いルールで始まります。同じ票数のときはランダムで決まります。</p>
@@ -504,24 +548,27 @@ function voteHTML(){
 
 /* decided */
 // スロットが止まる時間（決定画面が出てからのミリ秒）
-const SLOT_STOPS = [1800, 3300, 4800];
-const AFTER_SLOTS = 5500;   // 問題数・制限時間とモードの説明を出す
-const TEAM_SHOW = 6800;     // チーム発表を出す
+const SLOT_KEYS = ['format', 'mode', 'answer', 'genre', 'difficulty'];
+const SLOT_STOPS = [1600, 2700, 3800, 4900, 6000];
+const AFTER_SLOTS = 6700;   // 問題数・制限時間とモードの説明を出す
+const TEAM_SHOW = 7900;     // チーム発表を出す
 let decidedStart = 0, decidedKey = null, slotRAF = 0;
 const reducedMotion = (() => { try{ return matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){ return false; } })();
 function decidedElapsed(){ return reducedMotion ? 99999 : Date.now() - decidedStart; }
 
 function decidedHTML(){
   const d = state.decided, c = state.config, sec = Math.ceil(remainingMs() / 1000);
-  if(decidedKey !== state.code + c.genre + c.format + c.mode || !decidedStart){
-    decidedKey = state.code + c.genre + c.format + c.mode;
+  if(decidedKey !== state.code + c.genre + c.format + c.mode + c.difficulty + c.answer || !decidedStart){
+    decidedKey = state.code + c.genre + c.format + c.mode + c.difficulty + c.answer;
     decidedStart = Date.now() - (d.elapsedMs || 0);
   }
   const votes = (k, id) => (d.tally[k] || {})[id] || 0;
   const reels = [
     {k:'format', label:'形式', result:c.formatName, n:votes('format', c.format)},
     {k:'mode', label:'モード', result:c.modeName, n:votes('mode', c.mode)},
+    {k:'answer', label:'回答方式', result:c.answerName, n:votes('answer', c.answer)},
     {k:'genre', label:'ジャンル', result:c.genreName, n:votes('genre', c.genre)},
+    {k:'difficulty', label:'難易度', result:c.difficultyName, n:votes('difficulty', c.difficulty)},
   ];
   const el = decidedElapsed();
   const reelHTML = reels.map((r, i) => {
@@ -534,13 +581,15 @@ function decidedHTML(){
   }).join('');
   const after = el >= AFTER_SLOTS, teams = el >= TEAM_SHOW;
   return `<div class="stack">
-    <div class="marquee" style="padding-bottom:0"><h1 id="dec-title">${el >= SLOT_STOPS[2] ? 'ルール決定！' : 'ルール発表…'}</h1></div>
+    <div class="marquee" style="padding-bottom:0"><h1 id="dec-title">${el >= SLOT_STOPS[SLOT_STOPS.length - 1] ? 'ルール決定！' : 'ルール発表…'}</h1></div>
     <div class="slots">${reelHTML}</div>
     <div class="stack reveal-in" id="dec-after" ${after ? '' : 'hidden'}>
       <div class="rules">
         <div class="rule"><small>問題数</small><b>${c.count}問</b><small>ルーム主が決定</small></div>
         <div class="rule"><small>制限時間</small><b>${c.time}秒</b><small>ルーム主が決定</small></div>
       </div>
+      ${c.leveled ? '' : `<p class="center muted">${esc(c.genreName)}は難易度に関係なく出題されます。</p>`}
+      ${c.answer === 'typing' ? '<p class="center muted">タイピング：答えを入力して送信します。ひらがな・カタカナ・漢字どれでもOK。</p>' : c.answer === 'mixed' ? '<p class="center muted">まぜる：4択の問題とタイピングの問題が混ざって出ます。</p>' : ''}
       ${d.forcedSolo ? '<p class="center muted">チーム戦は2人以上で遊べるので、今回は個人戦になりました。</p>' : ''}
       ${isBuzz() ? '<p class="center muted">早押し：いちばん早く正解した人だけが1000点。まちがえるとその問題は答えられません。</p>' : '<p class="center muted">全員が答えられます。速く正解するほど高得点です。</p>'}
     </div>
@@ -550,7 +599,7 @@ function decidedHTML(){
 }
 // 回っている途中に見せる名前（止まる直前はゆっくりになる）
 function spinningName(i, el){
-  const k = ['format', 'mode', 'genre'][i];
+  const k = SLOT_KEYS[i];
   const names = ((state.decided.ballot.find((b) => b.key === k) || {}).options || []).map((o) => o.name);
   if(!names.length) return '';
   const left = SLOT_STOPS[i] - el;
@@ -563,9 +612,9 @@ function spinSlots(){
   if(!state || state.phase !== 'decided' || !state.config) return;
   const c = state.config, d = state.decided;
   const el = decidedElapsed();
-  const lists = ['format', 'mode', 'genre'].map((k) => ((d.ballot.find((b) => b.key === k) || {}).options || []).map((o) => o.name));
-  const results = [c.formatName, c.modeName, c.genreName];
-  const counts = [['format', c.format], ['mode', c.mode], ['genre', c.genre]].map(([k, id]) => (d.tally[k] || {})[id] || 0);
+  const lists = SLOT_KEYS.map((k) => ((d.ballot.find((b) => b.key === k) || {}).options || []).map((o) => o.name));
+  const results = [c.formatName, c.modeName, c.answerName, c.genreName, c.difficultyName];
+  const counts = [['format', c.format], ['mode', c.mode], ['answer', c.answer], ['genre', c.genre], ['difficulty', c.difficulty]].map(([k, id]) => (d.tally[k] || {})[id] || 0);
   lists.forEach((names, i) => {
     const reel = document.getElementById('reel-' + i), box = document.getElementById('slot-' + i), v = document.getElementById('votes-' + i);
     if(!reel || !box) return;
@@ -576,7 +625,7 @@ function spinSlots(){
     reel.textContent = spinningName(i, el);
   });
   const t = document.getElementById('dec-title');
-  if(t && el >= SLOT_STOPS[2]) t.textContent = 'ルール決定！';
+  if(t && el >= SLOT_STOPS[SLOT_STOPS.length - 1]) t.textContent = 'ルール決定！';
   const a = document.getElementById('dec-after'); if(a && el >= AFTER_SLOTS) a.hidden = false;
   const tm = document.getElementById('dec-teams'); if(tm && el >= TEAM_SHOW) tm.hidden = false;
   if(el < TEAM_SHOW + 100) slotRAF = requestAnimationFrame(spinSlots);
@@ -599,10 +648,15 @@ function answersHTML(opts){
     return `<${tag} class="${cls.join(' ')}"${attrs}><span class="L">${L[i]}</span><span class="t">${esc(txt)}</span></${tag}>`;
   }).join('') + '</div>';
 }
-function questionHTML(){
+function myPicked(){ return state.myAnswer != null ? state.myAnswer : pendingAnswer; }
+function questionLocked(){
+  const b = state.buzz;
+  return myPicked() != null || remainingMs() <= 0 || !!(b && b.winnerName);
+}
+function questionStatus(){
   const q = state.question, b = state.buzz;
-  const picked = state.myAnswer != null ? state.myAnswer : pendingAnswer;
-  const out = remainingMs() <= 0;
+  const picked = myPicked(), out = remainingMs() <= 0;
+  const mineText = state.myText != null ? state.myText : pendingText;
   let status = '';
   if(isBuzz()){
     if(b && b.winnerName) status = `<p class="banner">${esc(b.winnerName)} が正解！</p>`;
@@ -610,20 +664,37 @@ function questionHTML(){
     else if(picked != null) status = `<p class="center">判定中…</p>`;
     else if(out) status = `<p class="center" style="color:var(--bad)"><b>時間切れ</b></p>`;
     if(b && b.missed.length) status += `<div class="buzzline"><span class="muted">お手つき：</span>${b.missed.map((n) => `<span class="miss">${esc(n)}</span>`).join('')}</div>`;
-  } else {
-    status = picked != null
-      ? `<p class="center"><b>${L[picked]}</b> で回答しました。答え合わせを待っています…</p>`
-      : out ? `<p class="center" style="color:var(--bad)"><b>時間切れ</b></p>` : '';
+  } else if(picked != null){
+    status = q.typing
+      ? `<p class="center">「<b>${esc(mineText)}</b>」で回答しました。答え合わせを待っています…</p>`
+      : `<p class="center"><b>${L[picked]}</b> で回答しました。答え合わせを待っています…</p>`;
+  } else if(out){
+    status = `<p class="center" style="color:var(--bad)"><b>時間切れ</b></p>`;
   }
-  const locked = picked != null || out || (b && !!b.winnerName);
+  return status;
+}
+function questionMeter(){
+  const b = state.buzz;
+  return `<span class="muted">${isBuzz() ? 'お手つき' : '回答'} <span class="count">${isBuzz() ? (b ? b.missed.length : 0) : state.answeredCount} / ${state.playerCount}</span></span>
+      ${isHost() ? '<button class="btn small ghost" data-act="close">締め切る</button>' : ''}`;
+}
+function typingHTML(locked){
+  return `<form class="typing" id="typing-form" autocomplete="off">
+      <input type="text" id="typing-input" maxlength="40" placeholder="答えを入力" value="${esc(typingDraft)}" ${locked ? 'disabled' : ''} autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="send" aria-label="答え">
+      <button class="btn hi" type="submit" ${locked ? 'disabled' : ''}>送信</button>
+    </form>
+    <p class="muted center" style="font-size:.85rem">ひらがな・カタカナ・漢字、どれで書いてもOKです。</p>`;
+}
+function questionHTML(){
+  const q = state.question;
+  const locked = questionLocked();
   return `<div class="stack">
     ${qHead()}
     <div class="bar"><i id="tbar" style="width:${100 * remainingMs() / (q.time * 1000)}%"></i></div>
     <div class="qtext">${esc(q.text)}</div>
-    ${answersHTML({buttons:true, picked, disabled: locked})}
-    ${status}
-    <div class="meter"><span class="muted">${isBuzz() ? 'お手つき' : '回答'} <span class="count">${isBuzz() ? (b ? b.missed.length : 0) : state.answeredCount} / ${state.playerCount}</span></span>
-      ${isHost() ? '<button class="btn small ghost" data-act="close">締め切る</button>' : ''}</div>
+    ${q.typing ? typingHTML(locked) : answersHTML({buttons:true, picked: myPicked(), disabled: locked})}
+    <div id="q-status">${questionStatus()}</div>
+    <div class="meter" id="q-meter">${questionMeter()}</div>
   </div>`;
 }
 
@@ -647,6 +718,14 @@ function revealHTML(){
   const mine = state.players.find((p) => p.id === me().id) || {score:0};
   const last = q.index + 1 >= q.total;
   const max = Math.max(1, ...rv.dist);
+  const answerBlock = q.typing
+    ? `<div class="truth"><small>正解</small><b>${esc(rv.correctText)}</b></div>
+       <ul class="typed">${rv.typed.length ? rv.typed.map((t) => {
+         const pl = state.players.find((p) => p.id === t.id) || {};
+         return `<li class="${t.correct ? 'ok' : 'ng'}${t.id === me().id ? ' me' : ''}"><span class="mk">${t.correct ? '○' : '×'}</span><span class="nm">${teamDot(pl)}${esc(t.name)}</span><span class="tx">${esc(t.text)}</span><span class="sec">${t.sec}秒</span></li>`;
+       }).join('') : '<li class="empty muted">だれも答えませんでした</li>'}</ul>`
+    : `${answersHTML({correct: rv.correct, picked})}
+       <div class="dist">${rv.dist.map((n, i) => `<div class="dcol c${i}${i === rv.correct ? '' : ' no'}"><b>${n}</b><i style="height:${Math.round(100 * n / max)}%"></i><small>${L[i]}</small></div>`).join('')}</div>`;
   let verdict, cls;
   if(isBuzz()){
     const w = rv.winner;
@@ -668,8 +747,7 @@ function revealHTML(){
       <p class="muted">合計 ${mine.score}点 ・ いま ${myPos()}位</p>
     </div>
     <div class="qtext" style="font-size:1.25rem">${esc(q.text)}</div>
-    ${answersHTML({correct: rv.correct, picked})}
-    <div class="dist">${rv.dist.map((n, i) => `<div class="dcol c${i}${i === rv.correct ? '' : ' no'}"><b>${n}</b><i style="height:${Math.round(100 * n / max)}%"></i><small>${L[i]}</small></div>`).join('')}</div>
+    ${answerBlock}
     ${isTeam() ? `<h3>チーム</h3>${teamsHTML({scores:true, gain:true})}` : ''}
     <h3>順位</h3>
     ${rankHTML(8)}
@@ -764,6 +842,23 @@ document.addEventListener('click', async (e) => {
       break;
     }
   }
+});
+
+/* ---------- typing ---------- */
+document.addEventListener('input', (e) => { if(e.target.id === 'typing-input') typingDraft = e.target.value; });
+document.addEventListener('compositionstart', (e) => { if(e.target.id === 'typing-input') composing = true; });
+document.addEventListener('compositionend', (e) => { if(e.target.id === 'typing-input') composing = false; });
+document.addEventListener('submit', async (e) => {
+  if(e.target.id !== 'typing-form') return;
+  e.preventDefault();
+  if(composing) return;
+  const input = document.getElementById('typing-input');
+  const text = (input ? input.value : typingDraft).trim();
+  if(!text){ toast('答えを入力してください。'); return; }
+  if(!state || state.phase !== 'question' || questionLocked()) return;
+  pendingAnswer = -1; pendingText = text; render();
+  const r = await api('answer', {text});
+  if(!r.ok){ pendingAnswer = null; pendingText = null; toast(r.error || '回答を送れませんでした。'); render(); }
 });
 
 /* ---------- boot ---------- */
