@@ -712,12 +712,16 @@ const actions = {
       ctx.screen ? `画面サイズ ${String(ctx.screen).slice(0, 20)}` : '',
       ctx.ua ? `ブラウザ ${String(ctx.ua).slice(0, 200)}` : '',
     ].filter(Boolean).join(' / ');
+    console.log(`意見箱: 受信（${kind}・${text.length}文字・${name}）`);
     const ok = await sendFeedback({ kind, text, name, info, at: new Date(now).toISOString() });
     if (!ok) return { ok: false, error: '送信に失敗しました。時間をおいてもう一度お試しください。' };
+    if (FEEDBACK_FORM) console.log('意見箱: Google フォームに転送しました');
     recent.push(now);
     feedbackLog.set(key, recent);
     return { ok: true };
   },
+  // 広告ブロッカーなどが「feedback」という名前のURLを止めることがあるので、別名でも受け付ける
+  letter(body, ip) { return actions.feedback(body, ip); },
   async create(body) {
     const user = body.auth && accounts ? await accounts.userForRoom(body.auth) : null;
     const name = user ? user.nickname : cleanName(body.name);

@@ -551,8 +551,15 @@ async function api(action, body){
   }catch(e){ return {ok:false, net:true, error:'サーバーに接続できません。通信状態を確認してください。'}; }
 }
 async function post(action, body){
-  return fetch('/api/' + action, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)})
-    .then((x) => x.json()).catch(() => ({ok:false, error:'サーバーに接続できません。'}));
+  let res;
+  try{
+    res = await fetch('/api/' + action, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+  }catch(e){
+    // サーバーまで届かなかった（オフライン・フィルター・ブロッカーなど）
+    return {ok:false, net:true, error:'サーバーに接続できません。', detail: 'ネットワーク: ' + ((e && e.message) || e)};
+  }
+  try{ return await res.json(); }
+  catch(e){ return {ok:false, net: res.status >= 500, error:'サーバーから正しい応答がありませんでした。', detail: 'HTTP ' + res.status}; }
 }
 // ---- 効果音（ファイルを使わず、その場で音を作る） ----
 const sfx = (() => {
@@ -741,10 +748,17 @@ document.addEventListener('submit', async (e) => {
   err.hidden = true;
   const btn = $('#fbsend'); btn.disabled = true; btn.textContent = '送信中…';
   const ctx = { phase: state ? state.phase : 'home', room: session ? session.code : '', screen: innerWidth + 'x' + innerHeight, ua: navigator.userAgent };
-  const r = await post('feedback', { kind: fbKind, text, name: $('#fbname').value.trim(), ctx });
+  const payload = { kind: fbKind, text, name: $('#fbname').value.trim(), ctx };
+  let r = await post('letter', payload);
+  // 届かなかったときは、少し待って2回まで送り直す（サーバーの起動待ちなど）
+  for(let i = 0; i < 2 && !r.ok && r.net; i++){
+    btn.textContent = '再送信中…';
+    await new Promise((ok) => setTimeout(ok, 2500));
+    r = await post('letter', payload);
+  }
   btn.disabled = false; btn.textContent = '送信する';
   if(r.ok){ $('#fbtext').value = ''; $('#fbcount').textContent = '0 / 500'; done.hidden = false; sfx.send(); }
-  else fail(r.error || '送信できませんでした。');
+  else fail((r.error || '送信できませんでした。') + (r.detail ? `（${r.detail}）` : ''));
 });
 const feedbackLink = () => `<p class="center"><button type="button" class="link" data-act="fbOpen">ご意見・不具合の報告</button></p>`;
 
