@@ -645,10 +645,11 @@ function feedbackForm() {
     const u = new URL(raw);
     const fields = {};
     for (const [k, v] of u.searchParams) if (k.startsWith('entry.')) fields[String(v).trim().toUpperCase()] = k;
-    if (!fields.TEXT) return null;
+    if (!fields.TEXT) { console.error('意見箱: FEEDBACK_FORM_URL に TEXT の欄が見つかりません。事前入力したURLを作り直してください。'); return null; }
     const action = `${u.origin}${u.pathname.replace(/\/viewform$/, '/formResponse')}`;
     return { action, fields };
   } catch {
+    console.error('意見箱: FEEDBACK_FORM_URL の形式が正しくありません。');
     return null;
   }
 }
@@ -671,10 +672,22 @@ async function sendFeedback(item) {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body.toString(),
+      redirect: 'manual',              // ログイン画面に飛ばされたかを見分けるため
       signal: AbortSignal.timeout(8000),
     });
-    if (!res.ok) console.error('意見箱：フォームへの送信に失敗', res.status);
-    return res.ok;
+    if (res.ok) return true;
+    // 失敗の理由をログに出す（Render の「Logs」で見られる）
+    const loc = res.headers.get('location') || '';
+    let why = '';
+    if ((res.status >= 300 && res.status < 400 && /accounts\.google\.com|ServiceLogin/.test(loc)) || res.status === 401 || res.status === 403) {
+      why = 'フォームがログイン必須になっています。フォームの「設定」で「（学校や組織名）のユーザーに限定する」と「メールアドレスを収集する」をオフにしてください。';
+    } else if (res.status === 400) {
+      why = '質問の形式が合っていません。4つの質問をすべて「記述式」（内容だけ「段落」）にして、「必須」をオフにしてください。';
+    } else if (res.status === 404) {
+      why = 'フォームが見つかりません。FEEDBACK_FORM_URL のリンクを確かめてください。';
+    }
+    console.error(`意見箱：フォームへの送信に失敗（${res.status}）${why}`);
+    return false;
   } catch (e) {
     console.error('意見箱：フォームへの送信に失敗', e.message);
     return false;

@@ -225,6 +225,7 @@ button.ans:active:not(:disabled){transform:translateY(3px) scale(.97)}
 .fb-body textarea{width:100%;font:inherit;color:var(--ink);background:var(--bg);border:2px solid var(--line);border-radius:12px;padding:10px 12px;resize:vertical;min-height:110px}
 .fb-body input[type=text]{font-size:1rem;padding:10px 12px}
 .fb-meta{display:flex;justify-content:flex-end;margin-top:-6px}
+.fb-err{margin:0;padding:10px;border-radius:12px;background:var(--bad);color:#fff;text-align:center;font-weight:700}
 .fb-done{margin:0;padding:10px;border-radius:12px;background:var(--good);color:var(--surface);text-align:center;font-weight:700}
 
 /* hidden scores & final */
@@ -469,7 +470,7 @@ button.ans:active:not(:disabled){transform:translateY(3px) scale(.97)}
 .card.more summary{cursor:pointer;font-weight:700;color:var(--muted)}
 .card.more{gap:0}
 
-#toast{position:fixed;left:50%;bottom:calc(96px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:12px;font-size:.9rem;max-width:calc(100% - 32px);z-index:20}
+#toast{position:fixed;left:50%;bottom:calc(96px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:12px;font-size:.9rem;max-width:calc(100% - 32px);z-index:50}
 @media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
@@ -505,7 +506,8 @@ button.ans:active:not(:disabled){transform:translateY(3px) scale(.97)}
     <input type="text" id="fbname" maxlength="20" placeholder="ニックネームなど">
     <p class="hint" id="fbnote">不具合の調査のため、ブラウザの種類と画面サイズも一緒に送られます。</p>
     <button class="btn hi block" type="submit" id="fbsend">送信する</button>
-    <p class="fb-done" id="fbdone" hidden>送信しました。ご意見ありがとうございます。</p>
+    <p class="fb-done" id="fbdone" role="status" hidden>送信しました。ご意見ありがとうございます。</p>
+    <p class="fb-err" id="fberr" role="alert" hidden></p>
   </form>
 </section>
 <section id="chatsheet" aria-label="チャット" hidden>
@@ -720,7 +722,7 @@ document.addEventListener('submit', async (e) => {
 // 意見箱
 let fbKind = '要望';
 function openFeedback(){
-  $('#fbback').hidden = false; $('#fbsheet').hidden = false; $('#fbdone').hidden = true;
+  $('#fbback').hidden = false; $('#fbsheet').hidden = false; $('#fbdone').hidden = true; $('#fberr').hidden = true;
   const nm = $('#fbname'); const home = $('#name');
   if(nm && !nm.value) nm.value = (state && state.me && state.me.name) || (home && home.value.trim()) || store('quiz.name') || '';
   setTimeout(() => $('#fbtext').focus(), 50);
@@ -733,13 +735,16 @@ document.addEventListener('submit', async (e) => {
   if(e.target.id !== 'fbform') return;
   e.preventDefault();
   const text = $('#fbtext').value.trim();
-  if(text.length < 2){ toast('内容を入力してください。'); $('#fbtext').focus(); return; }
+  const err = $('#fberr'), done = $('#fbdone');
+  const fail = (msg) => { err.textContent = msg; err.hidden = false; done.hidden = true; };
+  if(text.length < 2){ fail('内容を入力してください。'); $('#fbtext').focus(); return; }
+  err.hidden = true;
   const btn = $('#fbsend'); btn.disabled = true; btn.textContent = '送信中…';
   const ctx = { phase: state ? state.phase : 'home', room: session ? session.code : '', screen: innerWidth + 'x' + innerHeight, ua: navigator.userAgent };
   const r = await post('feedback', { kind: fbKind, text, name: $('#fbname').value.trim(), ctx });
   btn.disabled = false; btn.textContent = '送信する';
-  if(r.ok){ $('#fbtext').value = ''; $('#fbcount').textContent = '0 / 500'; $('#fbdone').hidden = false; sfx.send(); }
-  else toast(r.error || '送信できませんでした。');
+  if(r.ok){ $('#fbtext').value = ''; $('#fbcount').textContent = '0 / 500'; done.hidden = false; sfx.send(); }
+  else fail(r.error || '送信できませんでした。');
 });
 const feedbackLink = () => `<p class="center"><button type="button" class="link" data-act="fbOpen">ご意見・不具合の報告</button></p>`;
 
