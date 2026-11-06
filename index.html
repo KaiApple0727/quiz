@@ -272,6 +272,7 @@ button.ans:disabled{cursor:default}
 .miss{padding:2px 10px;border-radius:99px;border:1.5px solid var(--bad);color:var(--bad);font-weight:700}
 .banner{font-family:var(--display);font-size:clamp(1.4rem,6vw,2rem);text-align:center}
 
+#netbar{position:fixed;left:0;right:0;top:0;z-index:25;padding:calc(8px + env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) 8px max(16px,env(safe-area-inset-left,0px));background:var(--ink);color:var(--hi);text-align:center;font-size:.9rem;font-weight:700}
 #toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:12px;font-size:.9rem;max-width:calc(100% - 32px);z-index:20}
 @media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
 </style>
@@ -285,6 +286,7 @@ button.ans:disabled{cursor:default}
   <main id="stage" aria-live="polite"></main>
 </div>
 <div id="toast" hidden></div>
+<div id="netbar" role="status" hidden></div>
 
 <script>
 (function(){
@@ -321,34 +323,81 @@ async function post(action, body){
   return fetch('/api/' + action, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)})
     .then((x) => x.json()).catch(() => ({ok:false, error:'サーバーにつながりません。'}));
 }
+// ---- 再接続・再開・自動更新 ----
+const APP_VERSION = '__APP_VERSION__';   // サーバーが画面を送るときに書きかえる
+let lastSnap = null;                     // サーバーから預かっている、ルームの保存データ
+let restarting = false;                  // サーバー更新中の合図を受けとった
+let offlineSince = Date.now();
+function loadSnap(){
+  try{ const o = JSON.parse(sessionStorage.getItem('quiz.snap') || 'null'); if(o && session && o.code === session.code) lastSnap = o.snap; }catch(e){}
+}
+function saveSnap(snap){
+  if(!snap || !session) return;
+  lastSnap = snap;
+  try{ sessionStorage.setItem('quiz.snap', JSON.stringify({code: session.code, snap})); }catch(e){}
+}
+function setOnline(on){
+  if(on === online) return;
+  online = on;
+  offlineSince = on ? 0 : Date.now();
+  if(on) restarting = false;
+  renderHeader(); renderNetbar();
+}
+function renderNetbar(){
+  const bar = $('#netbar'); if(!bar) return;
+  const show = !!session && !online && (restarting || Date.now() - offlineSince > 1500);
+  bar.hidden = !show;
+  if(show) bar.textContent = restarting ? 'サーバーを更新しています。すぐに再開します…' : '通信が切れました。自動でつなぎ直しています…';
+}
+// 新しい版が公開されていたら、入力途中の答えを残して読みこみ直す
+function checkVersion(v){
+  if(!v || APP_VERSION.startsWith('__') || v === APP_VERSION) return false;
+  try{
+    if(sessionStorage.getItem('quiz.reloadedFor') === v) return false; // 読みこみ直しをくり返さない
+    sessionStorage.setItem('quiz.reloadedFor', v);
+    sessionStorage.setItem('quiz.draft', JSON.stringify({key: lastKey, text: typingDraft}));
+  }catch(e){ return false; }
+  location.reload();
+  return true;
+}
 function connect(){
   if(es) es.close();
   es = new EventSource('/events?code=' + encodeURIComponent(session.code) + '&token=' + encodeURIComponent(session.token));
   es.addEventListener('state', (ev) => {
-    online = true;
-    try{ state = JSON.parse(ev.data); }catch(e){ return; }
+    let next;
+    try{ next = JSON.parse(ev.data); }catch(e){ return; }
+    setOnline(true);
+    if(next.snap) saveSnap(next.snap);
+    if(checkVersion(next.version)) return;
+    state = next;
     onState();
   });
-  es.onopen = () => { online = true; renderHeader(); };
-  es.onerror = async () => {
-    online = false; renderHeader();
-    if(reconnecting) return;
-    reconnecting = true;
-    const r = await api('join');
-    reconnecting = false;
-    if(r.net){ if(es && es.readyState === EventSource.CLOSED) setTimeout(() => session && connect(), 3000); return; }
-    if(!r.ok){
-      // ルームが消えていたら（サーバーの再起動など）最初の画面へ戻る
-      if(es) es.close(); es = null;
-      leaveLocal('ルームが終了しました。もう一度ルームを作るか参加してください。');
-      return;
-    }
-    if(es && es.readyState === EventSource.CLOSED) setTimeout(() => session && connect(), 1000);
-  };
+  es.addEventListener('restart', (ev) => {
+    try{ const d = JSON.parse(ev.data); if(d.snap) saveSnap(d.snap); }catch(e){}
+    restarting = true; setOnline(false); renderNetbar();
+  });
+  es.onerror = () => { setOnline(false); resume(); };
+}
+// つなぎ直す。ルームが消えていたら（サーバーの更新など）預かっていたデータで再開する
+async function resume(){
+  if(reconnecting || !session) return;
+  reconnecting = true;
+  let r = await api('join');
+  if(!r.ok && !r.net && lastSnap) r = await api('restore', {snap: lastSnap});
+  reconnecting = false;
+  if(r.net){ setTimeout(() => { if(session && !online) resume(); }, 2500); return; }
+  if(!r.ok){
+    if(es) es.close(); es = null;
+    leaveLocal(r.error && r.error !== 'そのルームは見つかりません。番号を確かめてください。' ? r.error : 'ルームが終了しました。もう一度ルームを作るか参加してください。');
+    return;
+  }
+  if(checkVersion(r.version)) return;
+  if(!es || es.readyState === EventSource.CLOSED) setTimeout(() => { if(session) connect(); }, 300);
 }
 function saveSession(s){ session = s; store('quiz.session', s ? JSON.stringify(s) : null); }
 function leaveLocal(msg){
   saveSession(null); state = null; homeError = msg || '';
+  lastSnap = null; try{ sessionStorage.removeItem('quiz.snap'); }catch(e){}
   history.replaceState(null, '', location.pathname);
   render();
 }
@@ -978,7 +1027,17 @@ function confetti(){
 }
 
 /* ---------- ticking ---------- */
+let lastTick = Date.now();
 setInterval(() => {
+  const now = Date.now(), dt = now - lastTick; lastTick = now;
+  renderNetbar();
+  // 通信が切れているあいだは、タイマーや演出を止めておく
+  if(session && !online){
+    deadline += dt;
+    if(decidedStart) decidedStart += dt;
+    if(finalStart) finalStart += dt;
+    return;
+  }
   if(!state) return;
   const t = timerSource(); if(!t) return;
   const ms = remainingMs(), sec = Math.ceil(ms / 1000);
@@ -1019,6 +1078,7 @@ document.addEventListener('click', async (e) => {
       break;
     }
     case 'answer': {
+      if(!online){ toast('つなぎ直しています。少し待ってから答えてください。'); return; }
       if(state.myAnswer != null || pendingAnswer != null || remainingMs() <= 0) return;
       pendingAnswer = +v; render();
       const r = await api('answer', {c: +v});
@@ -1054,6 +1114,7 @@ document.addEventListener('submit', async (e) => {
   const text = (input ? input.value : typingDraft).trim();
   if(!text){ toast('答えを入力してください。'); return; }
   if(!state || state.phase !== 'question' || questionLocked()) return;
+  if(!online){ toast('つなぎ直しています。少し待ってから送ってください。'); return; }
   pendingAnswer = -1; pendingText = text; render();
   const r = await api('answer', {text});
   if(!r.ok){ pendingAnswer = null; pendingText = null; toast(r.error || '回答を送れませんでした。'); render(); }
@@ -1062,10 +1123,17 @@ document.addEventListener('submit', async (e) => {
 /* ---------- boot ---------- */
 loadUpdates();
 (async function boot(){
+  try{
+    const d = JSON.parse(sessionStorage.getItem('quiz.draft') || 'null');
+    if(d){ lastKey = d.key; typingDraft = d.text || ''; sessionStorage.removeItem('quiz.draft'); }
+  }catch(e){}
   const urlCode = new URLSearchParams(location.search).get('room');
   if(session && (!urlCode || urlCode === session.code)){
-    const r = await api('join');
+    loadSnap();
+    let r = await api('join');
+    if(!r.ok && !r.net && lastSnap) r = await api('restore', {snap: lastSnap});
     if(r.ok){ connect(); render(); return; }
+    if(r.net){ render(); setOnline(false); resume(); return; }
     saveSession(null);
   }
   render();

@@ -10,6 +10,7 @@
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
+const zlib = require('zlib');
 const crypto = require('crypto');
 const { GENRES, BANK } = require('./questions');
 
@@ -26,6 +27,8 @@ const HOST_HANDOVER_MS = 15000;      // ルーム主が切断したまま戻ら�
 const ROOM_IDLE_MS = 15 * 60 * 1000; // 誰もいないルームを消すまでの時間
 const GRACE_MS = 600;                // 通信の遅れを見込んだ受付の猶予
 const PING_MS = 20000;               // 接続を保つための空送信
+const RESUME_GRACE_MS = 1500;        // 再開したとき、残り時間に足すおまけ
+const SNAPSHOT_MAX_AGE_MS = 2 * 60 * 60 * 1000; // これより古い保存データからは再開しない
 
 // NPC の強さ。accuracy = 正解する確率、speed = 制限時間のどのあたりで答えるか（0=すぐ、1=ぎりぎり）
 // typeMs = タイピングで1文字打つのにかかる時間
@@ -275,6 +278,8 @@ function viewFor(room, player) {
     code: room.code,
     me: { id: player.id, name: player.name, isHost: room.hostId === player.id, team: player.team || null },
     phase: room.phase,
+    version: VERSION,
+    snap: room.snap || (room.snap = sealSnapshot(snapshotOf(room))),
     settings: room.settings,
     choices: { counts: COUNTS, times: TIMES },
     players: [...room.players.values()].map((p) => ({
@@ -378,6 +383,7 @@ function send(res, event, data) {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 function broadcast(room) {
+  room.snap = sealSnapshot(snapshotOf(room)); // 再起動にそなえて、最新の状態を預けておく
   for (const p of room.players.values()) {
     if (p.bot || !isConnected(p)) continue;
     const view = viewFor(room, p);
@@ -442,8 +448,8 @@ function advance(room) {
 // input は { c: 選んだ番号 } か { text: 入力した答え }
 function submitAnswer(room, p, input) {
   if (room.phase !== 'question' || room.answers.has(p.id)) return false;
-  const ms = Date.now() - room.qStartedAt;
-  if (ms > room.config.time * 1000 + GRACE_MS) return false;
+  const ms = Math.min(Date.now() - room.qStartedAt, room.config.time * 1000);
+  if (Date.now() > room.deadline + GRACE_MS) return false;
   const q = room.questions[room.qIndex];
   let entry;
   if (q.typing) {
@@ -487,11 +493,12 @@ function scheduleHandover(room) {
 }
 
 /* ---------- NPC ---------- */
-function scheduleBots(room) {
+// elapsed: 再開したときに、すでに過ぎていた時間
+function scheduleBots(room, elapsed = 0) {
   const q = room.questions[room.qIndex];
   const limit = room.config.time * 1000;
   for (const p of room.players.values()) {
-    if (!p.bot) continue;
+    if (!p.bot || room.answers.has(p.id)) continue;
     const lv = BOT_LEVELS[p.level];
     let [lo, hi] = lv.speed;
     let accuracy = lv.accuracy;
@@ -514,6 +521,7 @@ function scheduleBots(room) {
     } else {
       delay = Math.round(limit * (lo + Math.random() * (hi - lo)));
     }
+    if (elapsed) delay = Math.max(800 + Math.random() * 1500, delay - elapsed);
     // タイピングの問題では、選んだ選択肢の言葉を「入力」する
     const input = q.typing ? { text: q.c[c] } : { c };
     room.botTimers.push(setTimeout(() => {
@@ -566,7 +574,7 @@ const actions = {
     const room = rooms.get(code);
     if (!room) return { ok: false, error: 'そのルームは見つかりません。番号を確かめてください。' };
     const known = body.token ? humans(room).find((p) => p.token === body.token) : null;
-    if (known) return { ok: true, code, token: known.token };
+    if (known) return { ok: true, code, token: known.token, version: VERSION };
     const name = cleanName(body.name);
     if (!name) return { ok: false, error: 'ニックネームを入れてください。' };
     if (humans(room).length >= MAX_PLAYERS) return { ok: false, error: 'このルームは満員です。' };
@@ -574,6 +582,21 @@ const actions = {
     room.lastActive = Date.now();
     broadcast(room);
     return { ok: true, code, token: me.token };
+  },
+  // 再起動で消えたルームを、ブラウザに預けておいたデータから元に戻す
+  restore(body) {
+    const code = String(body.code || '');
+    if (rooms.has(code)) {
+      const r = rooms.get(code);
+      const known = body.token ? humans(r).find((p) => p.token === body.token) : null;
+      return known ? { ok: true, code, version: VERSION } : { ok: false, error: 'このルームには参加していません。' };
+    }
+    const snap = openSnapshot(body.snap);
+    if (!snap || snap.v !== 1 || snap.code !== code) return { ok: false, error: 'ルームを再開できませんでした。' };
+    if (Date.now() - snap.savedAt > SNAPSHOT_MAX_AGE_MS) return { ok: false, error: 'ルームの保存期間がすぎていました。' };
+    if (!snap.players.some((p) => !p.bot && p.token === body.token)) return { ok: false, error: 'このルームには参加していません。' };
+    restoreRoom(snap);
+    return { ok: true, code, version: VERSION, restored: true };
   },
   leave(body) {
     const { room, me } = auth(body);
@@ -693,6 +716,103 @@ const actions = {
   },
 };
 
+/* ---------- 再起動しても続けられるようにする ---------- */
+// サーバーを更新（再起動）すると、メモリにあるルームは消えてしまう。
+// そこでルームの状態を暗号化して参加者のブラウザに預けておき、再起動後に返してもらって元に戻す。
+// 暗号の鍵は Render の環境変数 QUIZ_SECRET に登録しておくと安全（なくても動く）。
+const SECRET_KEY = crypto.createHash('sha256').update(process.env.QUIZ_SECRET || 'minna-no-quiz-taikai-default-key').digest();
+
+function sealSnapshot(obj) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', SECRET_KEY, iv);
+  const body = Buffer.concat([cipher.update(zlib.deflateRawSync(Buffer.from(JSON.stringify(obj)))), cipher.final()]);
+  return Buffer.concat([iv, cipher.getAuthTag(), body]).toString('base64url');
+}
+function openSnapshot(blob) {
+  try {
+    const buf = Buffer.from(String(blob || ''), 'base64url');
+    const decipher = crypto.createDecipheriv('aes-256-gcm', SECRET_KEY, buf.subarray(0, 12));
+    decipher.setAuthTag(buf.subarray(12, 28));
+    const plain = Buffer.concat([decipher.update(buf.subarray(28)), decipher.final()]);
+    return JSON.parse(zlib.inflateRawSync(plain).toString());
+  } catch {
+    return null; // 鍵がちがう・書きかえられている・こわれている
+  }
+}
+// ルームを保存用のデータにする（時間は「あと何ミリ秒」「何ミリ秒たった」の形で持つ）
+function snapshotOf(room) {
+  const now = Date.now();
+  return {
+    v: 1,
+    savedAt: now,
+    code: room.code,
+    hostId: room.hostId,
+    phase: room.phase,
+    settings: room.settings,
+    config: room.config,
+    votes: [...room.votes.entries()],
+    ready: [...(room.ready || [])],
+    players: [...room.players.values()].map((p) => ({
+      id: p.id, token: p.token, name: p.name, bot: !!p.bot, level: p.level, score: p.score, gain: p.gain, team: p.team, joinedAt: p.joinedAt,
+    })),
+    questions: room.questions,
+    qIndex: room.qIndex,
+    answers: [...room.answers.entries()],
+    buzzWinner: room.buzzWinner,
+    hideFrom: room.hideFrom,
+    forcedSolo: room.forcedSolo,
+    lastTally: room.lastTally,
+    qElapsedMs: room.phase === 'question' ? now - room.qStartedAt : 0,
+    qRemainingMs: room.phase === 'question' ? Math.max(0, room.deadline - now) : 0,
+    revealRemainingMs: room.phase === 'reveal' ? Math.max(0, room.revealEndsAt - now) : 0,
+    decidedElapsedMs: room.phase === 'decided' ? now - room.decidedAt : 0,
+    decidedMs: room.decidedMs,
+    finalElapsedMs: room.phase === 'final' ? now - room.finalAt : 0,
+  };
+}
+// 保存データからルームを作り直し、止まったところから続ける
+function restoreRoom(snap) {
+  const now = Date.now();
+  const room = {
+    code: snap.code, hostId: snap.hostId, phase: snap.phase, settings: snap.settings, config: snap.config,
+    votes: new Map(snap.votes || []), ready: new Set(snap.ready || []),
+    players: new Map(), questions: snap.questions || [], qIndex: snap.qIndex || 0,
+    answers: new Map(snap.answers || []), buzzWinner: snap.buzzWinner || null,
+    hideFrom: snap.hideFrom, forcedSolo: snap.forcedSolo, lastTally: snap.lastTally,
+    botTimers: [], lastActive: now, restoredAt: now,
+  };
+  for (const p of snap.players || []) room.players.set(p.id, { ...p, streams: new Set() });
+  rooms.set(room.code, room);
+  if (room.phase === 'decided') {
+    room.decidedMs = snap.decidedMs || DECIDED_MS;
+    room.decidedAt = now - (snap.decidedElapsedMs || 0);
+    room.timer = setTimeout(() => startGame(room), Math.max(1500, room.decidedMs - (snap.decidedElapsedMs || 0)));
+  } else if (room.phase === 'question') {
+    // 残り時間はそのまま（止まっていたあいだは数えない）＋少しおまけ
+    room.qStartedAt = now - (snap.qElapsedMs || 0);
+    room.deadline = now + (snap.qRemainingMs || 0) + RESUME_GRACE_MS;
+    room.timer = setTimeout(() => reveal(room), room.deadline - now + GRACE_MS);
+    if (room.buzzWinner) { clearTimeout(room.timer); room.timer = setTimeout(() => reveal(room), 800); }
+    else scheduleBots(room, snap.qElapsedMs || 0);
+  } else if (room.phase === 'reveal') {
+    room.revealEndsAt = now + Math.max(2500, snap.revealRemainingMs || 0);
+    room.timer = setTimeout(() => advance(room), room.revealEndsAt - now);
+  } else if (room.phase === 'final') {
+    room.finalAt = now - Math.max(snap.finalElapsedMs || 0, 60000); // 結果発表の演出はくり返さない
+  }
+  console.log(`ルーム ${room.code} を再開しました（${room.phase}）`);
+  return room;
+}
+
+// 画面のバージョン。ファイルが変わると変わる（開いている画面が古ければ自動で読みこみ直す）
+const VERSION = (() => {
+  const h = crypto.createHash('sha1');
+  for (const f of [__filename, path.join(__dirname, 'questions.js'), path.join(__dirname, 'public', 'index.html'), path.join(__dirname, 'index.html')]) {
+    try { h.update(fs.readFileSync(f)); } catch {}
+  }
+  return h.digest('hex').slice(0, 10);
+})();
+
 /* ---------- HTTP ---------- */
 // 画面のファイルは public フォルダの中か、server.js と同じ場所のどちらに置いてあっても動くようにする
 const INDEX = [path.join(__dirname, 'public', 'index.html'), path.join(__dirname, 'index.html')]
@@ -742,7 +862,7 @@ function openStream(req, res, url) {
 function readJson(req) {
   return new Promise((resolve) => {
     let raw = '';
-    req.on('data', (chunk) => { raw += chunk; if (raw.length > 4096) req.destroy(); });
+    req.on('data', (chunk) => { raw += chunk; if (raw.length > 512 * 1024) req.destroy(); });
     req.on('end', () => { try { resolve(JSON.parse(raw || '{}')); } catch { resolve({}); } });
     req.on('error', () => resolve({}));
   });
@@ -754,7 +874,7 @@ const server = http.createServer(async (req, res) => {
     fs.readFile(INDEX, (err, buf) => {
       if (err) { res.writeHead(500); res.end(); return; }
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
-      res.end(buf);
+      res.end(buf.toString().replace('__APP_VERSION__', VERSION));
     });
     return;
   }
@@ -781,4 +901,23 @@ setInterval(() => {
   }
 }, 60 * 1000).unref();
 
-server.listen(PORT, () => console.log(`クイズ大会サーバー起動: http://localhost:${PORT}`));
+// 更新で止められるとき：みんなに最新の保存データと「更新中」の合図を送ってから終わる
+let stopping = false;
+function shutdown() {
+  if (stopping) return;
+  stopping = true;
+  for (const room of rooms.values()) {
+    clearTimers(room);
+    const snap = sealSnapshot(snapshotOf(room));
+    for (const p of room.players.values()) for (const res of p.streams) { try { send(res, 'restart', { snap }); } catch {} }
+  }
+  setTimeout(() => {
+    for (const room of rooms.values()) for (const p of room.players.values()) for (const res of p.streams) { try { res.end(); } catch {} }
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(0), 2000).unref();
+  }, 500);
+}
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
+
+server.listen(PORT, () => console.log(`クイズ大会サーバー起動: http://localhost:${PORT}（バージョン ${VERSION}）`));
