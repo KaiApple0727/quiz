@@ -28,7 +28,7 @@ const TIMES = [10, 15, 20, 30];      // ルーム主が選べる制限時間（�
 const BUZZ_POINTS = 1000;            // 早押しで正解したときの得点
 // 連続正解ボーナス：2連続 +50、3連続 +100 … 6連続以上 +250
 const streakBonus = (streak) => (streak >= 2 ? Math.min(streak - 1, 5) * 50 : 0);
-const REACTIONS = ['すごい！', 'おしい！', 'ドンマイ', 'ナイス！', 'えっ!?', 'はやっ！'];
+const REACTIONS = ['すごい！', '惜しい！', 'ドンマイ', 'ナイス！', 'えっ!?', '速い！'];
 const REACTION_GAP_MS = 700;         // スタンプの連打防止
 const HOST_HANDOVER_MS = 15000;      // ルーム主が切断したまま戻らないとき、次の人に交代するまでの時間
 const ROOM_IDLE_MS = 15 * 60 * 1000; // 誰もいないルームを消すまでの時間
@@ -40,9 +40,9 @@ const SNAPSHOT_MAX_AGE_MS = 2 * 60 * 60 * 1000; // これより古い保存デ�
 // NPC の強さ。accuracy = 正解する確率、speed = 制限時間のどのあたりで答えるか（0=すぐ、1=ぎりぎり）
 // typeMs = タイピングで1文字打つのにかかる時間
 const BOT_LEVELS = {
-  easy:   { label: 'よわい', accuracy: 0.4,  speed: [0.45, 0.9], typeMs: 550 },
-  normal: { label: 'ふつう', accuracy: 0.65, speed: [0.25, 0.7], typeMs: 400 },
-  hard:   { label: 'つよい', accuracy: 0.9,  speed: [0.08, 0.4], typeMs: 300 },
+  easy:   { label: '弱い', accuracy: 0.4,  speed: [0.45, 0.9], typeMs: 550 },
+  normal: { label: '普通', accuracy: 0.65, speed: [0.25, 0.7], typeMs: 400 },
+  hard:   { label: '強い', accuracy: 0.9,  speed: [0.08, 0.4], typeMs: 300 },
 };
 // 早押しとタイピングでは NPC を少し弱く・遅くする
 const BOT_BUZZ = { accuracy: 0.75, slower: 0.2 };      // 正解率を0.75倍、答えるタイミングを制限時間の2割ぶん遅く
@@ -89,26 +89,26 @@ function pickQuestions(genre, difficulty, count, answerType) {
 function ballot() {
   return [
     { key: 'format', label: '形式', options: [
-      { id: 'solo', name: '個人戦', note: 'ひとりずつ点数を競う' },
-      { id: 'team', name: 'チーム戦', note: 'ランダムに2チームに分かれる' },
+      { id: 'solo', name: '個人戦', note: '個人で得点を競う' },
+      { id: 'team', name: 'チーム戦', note: 'ランダムに2チームに分かれて競う' },
     ], fallback: 'solo' },
     { key: 'mode', label: 'モード', options: [
-      { id: 'normal', name: 'ふつう', note: '全員が答える。速く正解するほど高得点' },
-      { id: 'buzz', name: '早押し', note: 'いちばん早く正解した人だけ得点。まちがえるとお手つき' },
+      { id: 'normal', name: '通常', note: '全員が回答。早く正解するほど高得点' },
+      { id: 'buzz', name: '早押し', note: '最初の正解者だけが得点。誤答はお手つき' },
     ], fallback: 'normal' },
     { key: 'answer', label: '回答方式', options: [
-      { id: 'choice', name: '4択', note: '4つの中から選ぶ' },
+      { id: 'choice', name: '4択', note: '4つの選択肢から選ぶ' },
       { id: 'typing', name: 'タイピング', note: '答えを入力する' },
-      { id: 'mixed', name: 'まぜる', note: '4択とタイピングが混ざる' },
+      { id: 'mixed', name: '混合', note: '4択とタイピングを混ぜて出題' },
     ], fallback: 'choice' },
     { key: 'genre', label: 'ジャンル', options: [
       ...GENRES.map((g) => ({ id: g.id, name: g.name, note: g.note, count: pool(g.id).length })),
       { id: 'mix', name: 'ミックス', note: '全ジャンルからランダム', count: pool('mix').length },
     ].filter((g) => g.count > 0), fallback: null },
     { key: 'difficulty', label: '難易度', options: [
-      { id: 'easy', name: 'かんたん' },
-      { id: 'normal', name: 'ふつう' },
-      { id: 'hard', name: 'むずかしい' },
+      { id: 'easy', name: '初級' },
+      { id: 'normal', name: '中級' },
+      { id: 'hard', name: '上級' },
     ], fallback: 'normal' },
   ];
 }
@@ -613,7 +613,7 @@ const actions = {
   async create(body) {
     const user = body.auth && accounts ? await accounts.userForRoom(body.auth) : null;
     const name = user ? user.nickname : cleanName(body.name);
-    if (!name) return { ok: false, error: 'ニックネームを入れてください。' };
+    if (!name) return { ok: false, error: 'ニックネームを入力してください。' };
     const code = newCode();
     const room = {
       code, hostId: null, players: new Map(), phase: 'lobby', settings: { count: 10, time: 15 },
@@ -628,7 +628,7 @@ const actions = {
   async join(body) {
     const code = String(body.code || '').replace(/\D/g, '');
     const room = rooms.get(code);
-    if (!room) return { ok: false, error: 'そのルームは見つかりません。番号を確かめてください。' };
+    if (!room) return { ok: false, error: 'ルームが見つかりません。番号を確認してください。' };
     const known = body.token ? humans(room).find((p) => p.token === body.token) : null;
     if (known) return { ok: true, code, token: known.token, version: VERSION };
     const user = body.auth && accounts ? await accounts.userForRoom(body.auth) : null;
@@ -636,7 +636,7 @@ const actions = {
     const same = user ? humans(room).find((p) => p.userId === user.id) : null;
     if (same) return { ok: true, code, token: same.token, version: VERSION };
     const name = user ? user.nickname : cleanName(body.name);
-    if (!name) return { ok: false, error: 'ニックネームを入れてください。' };
+    if (!name) return { ok: false, error: 'ニックネームを入力してください。' };
     if (humans(room).length >= MAX_PLAYERS) return { ok: false, error: 'このルームは満員です。' };
     const me = addPlayer(room, name, user);
     room.lastActive = Date.now();
@@ -653,7 +653,7 @@ const actions = {
     }
     const snap = openSnapshot(body.snap);
     if (!snap || snap.v !== 1 || snap.code !== code) return { ok: false, error: 'ルームを再開できませんでした。' };
-    if (Date.now() - snap.savedAt > SNAPSHOT_MAX_AGE_MS) return { ok: false, error: 'ルームの保存期間がすぎていました。' };
+    if (Date.now() - snap.savedAt > SNAPSHOT_MAX_AGE_MS) return { ok: false, error: '保存期間を過ぎているため、ルームを再開できませんでした。' };
     if (!snap.players.some((p) => !p.bot && p.token === body.token)) return { ok: false, error: 'このルームには参加していません。' };
     restoreRoom(snap);
     return { ok: true, code, version: VERSION, restored: true };
@@ -707,7 +707,7 @@ const actions = {
   vote(body) {
     const { room, me } = auth(body);
     if (!me || room.phase !== 'vote') return { ok: false };
-    if (room.ready.has(me.id)) return { ok: false, error: '準備OKを取り消すと、投票を変えられます。' };
+    if (room.ready.has(me.id)) return { ok: false, error: '投票を変更するには、準備OKを取り消してください。' };
     const b = BALLOT.find((x) => x.key === body.key);
     if (!b || !b.options.some((o) => o.id === String(body.value))) return { ok: false };
     const mine = { ...(room.votes.get(me.id) || {}) };
@@ -964,7 +964,7 @@ const server = http.createServer(async (req, res) => {
     const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
     let out;
     try { out = fn ? await fn(body, ip) : { ok: false }; }
-    catch (e) { console.error(e); out = { ok: false, error: 'うまくいきませんでした。もう一度お試しください。' }; }
+    catch (e) { console.error(e); out = { ok: false, error: '処理に失敗しました。もう一度お試しください。' }; }
     res.writeHead(fn ? 200 : 404, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
     res.end(JSON.stringify(out));
     return;
